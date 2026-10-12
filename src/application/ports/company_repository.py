@@ -6,7 +6,11 @@ from src.domain.entities.company import Company
 
 
 class CompanyRepositoryPort(ABC):
-    """Puerto de consulta de sociedades emisoras configuradas."""
+    """Puerto de persistencia y consulta de sociedades emisoras configuradas."""
+
+    @abstractmethod
+    def save(self, company: Company) -> Company:
+        """Persiste o actualiza una sociedad emisora."""
 
     @abstractmethod
     def get_by_id(self, company_id: str) -> Company | None:

@@ -1666,3 +1666,99 @@ Las siguientes directrices son de cumplimiento obligatorio y no pueden ser alter
                         Adaptadores Storage (LocalFileSystem, S3)
                         Adaptadores Notificación (Microsoft Graph API v1.0, SMTP)
 ```
+
+---
+
+# 56. ESTRATEGIA DE AUTOMATIZACIÓN, INTELIGENCIA ARTIFICIAL Y AGENTES
+
+## 56.1 Principio rector
+DECA Light debe priorizar una automatización determinista, fiable y auditable. La inteligencia artificial se incorporará únicamente cuando aporte valor demostrado en tareas de interpretación, clasificación o asistencia.
+
+La IA no debe sustituir las reglas de negocio ni convertirse en la fuente de verdad de la aplicación.
+
+## 56.2 Automatización determinista
+Las siguientes operaciones deben permanecer bajo control de la lógica convencional de la aplicación:
+- Identificación y persistencia de expediciones.
+- Conservación exacta del número de albarán.
+- Detección de duplicados.
+- Emparejamiento de matrículas por número de albarán, nunca por posición de fila.
+- Validación de datos obligatorios.
+- Control de estados y transiciones.
+- Generación de documentos a partir de datos validados.
+- Versionado, auditoría y conservación documental.
+- Gestión de permisos, sesiones y transacciones.
+- Registro y control de los envíos.
+
+## 56.3 Uso futuro de IA especializada
+Se podrán estudiar modelos de IA para:
+- Interpretar documentos con estructuras inesperadas.
+- Proponer campos que no hayan podido extraerse mediante reglas convencionales.
+- Identificar discrepancias entre los documentos originales y los datos extraídos.
+- Clasificar incidencias y explicar por qué una expedición está bloqueada.
+- Proponer correcciones para su revisión.
+- Resumir incidencias y detectar patrones operativos.
+
+La extracción determinista de texto y los parsers existentes serán la primera opción cuando resulten suficientes. El OCR se reservará para documentos escaneados sin texto utilizable.
+
+La IA debe distinguir entre datos confirmados, datos propuestos y datos pendientes de verificación. No puede inventar datos ni presentar inferencias como hechos confirmados.
+
+## 56.4 Agentes de IA
+En una fase posterior podrá evaluarse un asistente operativo con herramientas y permisos limitados.
+
+Podrá consultar expediciones, resumir pendientes, analizar incidencias y preparar propuestas o borradores.
+
+No podrá saltarse las validaciones, confirmar automáticamente datos dudosos, emitir documentos incompletos, borrar registros históricos ni ejecutar operaciones sensibles sin los controles establecidos.
+
+No se deben crear múltiples agentes independientes hasta que exista una necesidad real que justifique esa complejidad.
+
+## 56.5 n8n e integraciones externas
+n8n es una posibilidad futura para orquestar correos, notificaciones, tareas programadas y otros sistemas.
+
+No sustituirá a FastAPI como núcleo de negocio ni a PostgreSQL como fuente de verdad.
+
+No se debe introducir n8n, proveedores de IA, colas de trabajo o nuevas infraestructuras hasta justificar su necesidad.
+
+## 56.6 Correo corporativo
+Se prevé el envío de DeCA desde una cuenta corporativa autorizada.
+
+La implementación deberá estudiar primero el proveedor real de correo de la empresa y el método de integración adecuado.
+
+Se contemplarán los destinatarios asociados a transportistas, envíos individuales o agrupados, revisión previa, trazabilidad, gestión de errores, reintentos e idempotencia.
+
+La aceptación de un envío por el proveedor no debe confundirse con la entrega o recepción efectiva del mensaje.
+
+Esta funcionalidad sigue pendiente y no debe documentarse como implementada.
+
+## 56.7 Seguridad y control humano
+La IA debe trabajar con permisos mínimos y herramientas expresamente autorizadas.
+
+Las operaciones con consecuencias documentales o legales deben estar protegidas mediante validaciones deterministas, auditoría y aprobación humana cuando corresponda.
+
+La utilización de IA no constituye por sí misma una garantía de cumplimiento normativo.
+
+## 56.8 Orden de evolución estratégica
+Se documenta la siguiente secuencia estratégica:
+1. Persistencia y adaptadores SQLAlchemy.
+2. Validación de la importación de cartas de porte y CMR.
+3. Expediciones pendientes agrupadas por transportista.
+4. Incorporación y emparejamiento de matrículas.
+5. Validación y generación de DeCA.
+6. Almacenamiento persistente, enlaces y QR.
+7. Integración con el correo corporativo.
+8. Evaluación de IA para las excepciones reales observadas.
+9. Evaluación de agentes y n8n cuando aporten valor demostrado.
+
+Esta secuencia es una hoja de ruta orientativa. No autoriza a implementar todas las fases ni modifica la prioridad técnica inmediata.
+
+## 56.9 Reglas de gobernanza de ingeniería
+Las siguientes reglas complementan las directrices de continuidad del proyecto:
+- Inspeccionar el código real antes de proponer cambios.
+- Separar diagnóstico, propuesta, implementación y validación.
+- Dividir las tareas complejas en subfases pequeñas.
+- No inventar clases, interfaces, estados ni funcionalidades.
+- Mantener las pruebas existentes y añadir pruebas específicas.
+- No ejecutar migraciones sobre bases de datos persistentes sin autorización expresa.
+- No hacer commits ni pushes sin autorización expresa.
+- No utilizar credenciales reales ni conectar servicios externos sin autorización.
+- Actualizar la documentación de continuidad al finalizar cada fase autorizada.
+- Distinguir lo implementado, lo probado y lo que solo está previsto.
