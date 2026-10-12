@@ -1,0 +1,28 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: deca-light:latest
+    container_name: deca_light_app
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - APP_ENV=development
+      - APP_NAME=DECA Light
+      - APP_VERSION=0.1.0
+      - DEBUG=true
+      - DATABASE_URL=sqlite:////app/instance/deca.sqlite3
+      - STORAGE_PATH=/app/storage
+      - LOG_LEVEL=INFO
+      - EMAIL_PROVIDER=stub
+    volumes:
+      - ./instance:/app/instance
+      - ./storage:/app/storage
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz')"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
