@@ -1568,3 +1568,101 @@ El usuario debe poder identificar rápidamente:
 
 La interfaz debe estar diseñada para procesamiento rápido de múltiples
 expediciones.
+
+
+---
+
+# 53. PROTOCOLO DE CONTINUIDAD, GOBERNANZA Y FLUJO DE TRABAJO MULTI-AGENTE (CHATGPT, GEMINI, ANTIGRAVITY)
+
+Para garantizar la estabilidad a largo plazo del proyecto y evitar regresiones, inconsistencias o asunciones infundadas durante el desarrollo asistido por múltiples modelos de Inteligencia Artificial (ChatGPT, Gemini, Antigravity), se establecen los siguientes roles, responsabilidades y reglas operativas estrictas:
+
+## 53.1 Roles y Distribución de Responsabilidades
+1. **ChatGPT (Diseño Funcional, Dominio y Estrategia de Producto):**
+   - Responsable de definir los requerimientos de negocio, el modelo conceptual de dominio, las reglas operativas hortofrutícolas y el análisis regulatorio (FOM/2861/2012, BOE-A-2026-12784).
+   - Genera especificaciones funcionales, user stories, casos de uso y criterios de aceptación.
+   - No ejecuta cambios directos sobre el workspace ni asume el estado del filesystem sin verificación.
+
+2. **Gemini / Modelos de Auditoría (Revisión Crítica, Arquitectura y Verificación):**
+   - Responsable de realizar análisis estático, revisiones de arquitectura hexagonal, auditorías de seguridad (anti-IDOR, criptografía de tokens, inmutabilidad legal) y detección de contradicciones documentales.
+   - Diseña estrategias de migración, planes de contingencia y checklists de verificación antes de cada cambio estructural.
+
+3. **Antigravity (Ingeniero Principal Ejecutor en Workspace Local):**
+   - Agente pair-programming conectado directamente al entorno local (Windows PowerShell, Python `.venv`, Git).
+   - Ejecuta inspección real de archivos, pruebas automatizadas (`pytest`), generación de código, migraciones (`alembic`) y operaciones Git controladas.
+   - Actúa como salvaguarda del workspace: prohíbe operaciones destructivas no autorizadas (`git reset --hard`, `git clean`, `git push` sin autorización expresa).
+
+## 53.2 Protocolo de Handoff y Fuente de Verdad
+- **Fuente de Verdad Técnica:** La única fuente de verdad sobre el estado del código es el repositorio Git local (`master`), el filesystem real y la suite de pruebas automatizadas.
+- **Documentos de Continuidad:**
+  - `MASTER_CONTEXT.md`: Especificación técnica global, reglas de negocio y gobernanza del proyecto.
+  - `PROJECT_STATE.md`: Cuaderno de bitácora vivo que refleja la fase activa, el último commit, los cambios aplicados, su nivel de verificación empírica y el siguiente paso recomendado.
+- **Regla de No Asunción:** Ningún agente puede afirmar que una funcionalidad existe o que un test pasa basándose en el historial de chat anterior; todo estado debe ser verificado con herramientas en tiempo real (`git status`, `pytest`, `Test-Path`). Cualquier afirmación no verificada directamente debe marcarse explícitamente como `[PENDIENTE DE VERIFICACIÓN]`.
+- **Commits y Sincronización:**
+  - Commits atómicos y convencionales (`feat:`, `fix:`, `chore:`, `refactor:`, `test:`).
+  - Cada fase debe concluir con la suite completa de pruebas ejecutándose con éxito (cero errores).
+  - Prohibido hacer `git push` a `origin` sin que el usuario emita la orden exacta y expresa: `"AUTORIZO PUSH"`.
+
+---
+
+# 54. DECISIONES INNEGOCIABLES Y PRINCIPIOS DE INGENIERÍA
+
+Las siguientes directrices son de cumplimiento obligatorio y no pueden ser alteradas sin un Architecture Decision Record (ADR) formalmente aprobado:
+
+1. **Aislamiento Absoluto del Dominio (Clean Architecture / Hexagonal):**
+   - El núcleo de negocio (`src/domain/`) no tiene dependencias externas: prohíbe importar SQLAlchemy, FastAPI, Pydantic, ReportLab, Segno o cualquier biblioteca de infraestructura.
+   - Las reglas de validación legal (FOM/2861/2012) residen exclusivamente en entidades y value objects del dominio.
+
+2. **Inmutabilidad Documental y Custodia Legal (1 Año):**
+   - Conforme a la Orden FOM/2861/2012, una vez que un DeCA es generado y emitido, el documento y sus versiones son jurídicamente inmutables durante al menos 1 año.
+   - En la base de datos relacional, queda terminantemente prohibido el borrado en cascada (`ON DELETE CASCADE`) que pueda destruir versiones (`deca_versions`) o registros de auditoría de entrega (`email_deliveries`). Se debe aplicar política de restricción (`ON DELETE RESTRICT`) o borrado lógico auditado.
+
+3. **Token Público Criptográfico Separado del Identificador Interno:**
+   - Para la inspección pública en carretera por las autoridades (Guardia Civil / Inspectores de Transporte), se genera una URL con token de 256 bits (`secrets.token_urlsafe(32)`).
+   - Se prohíbe exponer claves primarias internas (UUIDs o autoincrementales) en URLs públicas o códigos QR para prevenir ataques de enumeración (anti-IDOR) y scraping de datos operativos.
+
+4. **Extracción Determinista de Albaranes sin Dependencia de IA:**
+   - La ingesta de albaranes de Hispatec ERP se realiza mediante parsers deterministas basados en capas de texto nativo (`pdfplumber` / `pypdf`) y expresiones regulares.
+   - No se emplean LLMs en el pipeline nuclear de extracción para evitar alucinaciones en campos críticos (NIFs, matrículas, kilos, fechas).
+
+5. **Aislamiento Multiempresa Estricto (Tenant Isolation):**
+   - Aunque Tomates de Autor S.L. y empresas vinculadas (ej. Cultivos Araba) compartan infraestructura y catálogo de transportistas/vehículos, los datos operativos (`expediciones`, `decas`, `configuraciones`, `entregas`) deben estar estrictamente particionados mediante `company_id`.
+   - Los números de albarán (`reference`) pueden duplicarse entre empresas distintas; la identidad unívoca de expedición la proporciona el identificador interno secuencial `internal_id` (`TD-YYYY-NNNNN`) y la clave compuesta `(company_id, reference)`.
+
+6. **Coexistencia Segura durante la Transición de Persistencia:**
+   - Los repositorios en memoria (`InMemory*`) existentes no deben eliminarse ni desconectarse hasta que los adaptadores SQLAlchemy (`SqlAlchemy*Repository`) estén 100% implementados, probados con la suite de integración y validados mediante tests de aceptación antes de conmutar las dependencias de FastAPI.
+
+---
+
+# 55. ARQUITECTURA TÉCNICA CONSOLIDADA Y MAPA DE INFRAESTRUCTURA
+
+## 55.1 Stack Tecnológico
+- **Lenguaje:** Python 3.12+ (tipado estricto con `typing`, `pydantic v2` en capa de aplicación/presentación).
+- **Framework Web / API:** FastAPI + Starlette (Uvicorn como servidor ASGI).
+- **ORM y Migraciones:** SQLAlchemy 2.0 (modo declarativo moderno 2.0) + Alembic.
+- **Motor de Base de Datos:**
+  - Desarrollo local y tests rápidos: SQLite en modo WAL (`sqlite+pysqlite:///deca_light.db`).
+  - Entorno de producción / staging: PostgreSQL 16+ en contenedor Docker.
+- **Generación Documental:** ReportLab (diseño vectorial tabular ultraligero y canónico de 1 página A4).
+- **Códigos QR:** Segno (generador QR vectorial puro sin dependencias complejas de C).
+- **Ingesta de Documentos:** `pdfplumber` / `pypdf` para extracción geométrica determinista.
+- **Testing:** `pytest` con plugins de integración (`pytest-asyncio`, `httpx`).
+
+## 55.2 Mapa de Capas y Dependencias
+```
+[ PRESENTACIÓN ]    --> FastAPI Routers, Schemas Pydantic, Middleware, Templates CCO
+        │
+        ▼
+[ APLICACIÓN ]      --> Casos de Uso (Import, AssignVehicle, GenerateDeCA, DeliverEmail)
+        │               DTOs, Interfaces de Puertos (Repositories, Storages, Notifiers)
+        ▼
+[  DOMINIO  ]       --> Entidades (Expedicion, DeCA, Transportista, Vehiculo)
+                        Value Objects (NIF, Matricula, DeCAToken, SnapshotHash)
+                        Servicios de Dominio & Reglas FOM/2861/2012
+        ▲
+        │
+[ INFRAESTRUCTURA ] --> Adaptadores SQLAlchemy (PostgreSQL/SQLite)
+                        Adaptador ReportLab (PdfRenderer)
+                        Adaptador Segno (QrGenerator)
+                        Adaptadores Storage (LocalFileSystem, S3)
+                        Adaptadores Notificación (Microsoft Graph API v1.0, SMTP)
+```

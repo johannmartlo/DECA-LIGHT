@@ -20,7 +20,9 @@ class FilesystemStorageAdapter(StorageServicePort):
         clean_rel = relative_path.lstrip("/\\")
         target = (self.base_dir / clean_rel).resolve()
         if not target.is_relative_to(self.base_dir):
-            raise PermissionError(f"Intento de acceso no autorizado fuera del almacenamiento: '{relative_path}'")
+            raise PermissionError(
+                f"Intento de acceso no autorizado fuera del almacenamiento: '{relative_path}'"
+            )
         return target
 
     def save(self, file_content: bytes | BinaryIO, destination_path: str) -> str:

@@ -30,7 +30,9 @@ class LocalPdfStorage(FilesystemStorageAdapter, PdfStoragePort):
         """Almacena el PDF en 'deca/{fiscal_year}/{deca_code}.pdf' con estricta validación de caracteres."""
         # Validación de seguridad contra inyección de rutas en los identificadores
         if not re.match(r"^\d{4}$", str(fiscal_year).strip()):
-            raise StorageException(f"Ejercicio fiscal inválido para almacenamiento: '{fiscal_year}'")
+            raise StorageException(
+                f"Ejercicio fiscal inválido para almacenamiento: '{fiscal_year}'"
+            )
         clean_code = str(deca_code).strip()
         if not re.match(r"^[A-Z0-9_-]+$", clean_code):
             raise StorageException(f"Código DeCA inválido para almacenamiento: '{deca_code}'")

@@ -1,8 +1,15 @@
+from __future__ import annotations
+
+import os
 from logging.config import fileConfig
+from pathlib import Path
 
 from sqlalchemy import engine_from_config, pool
 
+import src.infrastructure.database.models  # noqa: F401
 from alembic import context
+from src.config.settings import get_settings
+from src.infrastructure.database.session import Base
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -13,16 +20,27 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# add your model's MetaData object here
-# for 'autogenerate' support
-# from myapp import mymodel
-# target_metadata = mymodel.Base.metadata
-target_metadata = None
+# Asignar metadata de los modelos ORM de la aplicación para soporte de autogenerate
+target_metadata = Base.metadata
 
-# other values from the config, defined by the needs of env.py,
-# can be acquired:
-# my_important_option = config.get_main_option("my_important_option")
-# ... etc.
+
+def get_database_url() -> str:
+    """Obtiene dinámicamente la URL de conexión a la base de datos desde settings o entorno."""
+    try:
+        settings = get_settings()
+        url = settings.DATABASE_URL
+    except Exception:
+        url = os.getenv("DATABASE_URL", "sqlite:///./instance/deca.sqlite3")
+    url = url or "sqlite:///./instance/deca.sqlite3"
+
+    # Si es una base de datos SQLite basada en archivo, asegurar que el directorio padre existe
+    if url.startswith("sqlite") and "///" in url:
+        raw_path = url.split("///", 1)[1]
+        if raw_path and not raw_path.startswith(":memory:"):
+            db_path = Path(raw_path).resolve()
+            db_path.parent.mkdir(parents=True, exist_ok=True)
+
+    return url
 
 
 def run_migrations_offline() -> None:
@@ -37,7 +55,7 @@ def run_migrations_offline() -> None:
     script output.
 
     """
-    url = config.get_main_option("sqlalchemy.url")
+    url = get_database_url()
     context.configure(
         url=url,
         target_metadata=target_metadata,
@@ -56,8 +74,12 @@ def run_migrations_online() -> None:
     and associate a connection with the context.
 
     """
+    db_url = get_database_url()
+    configuration = config.get_section(config.config_ini_section, {})
+    configuration["sqlalchemy.url"] = db_url
+
     connectable = engine_from_config(
-        config.get_section(config.config_ini_section, {}),
+        configuration,
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
     )
