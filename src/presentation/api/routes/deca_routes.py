@@ -33,9 +33,10 @@ from src.domain.exceptions import (
     StorageException,
 )
 from src.domain.services.public_token_service import PublicDeCaTokenService
-from src.domain.value_objects import EmailAddress
+from src.domain.value_objects import CompanyContext, EmailAddress
 from src.presentation.api.dependencies import (
     get_audit_service,
+    get_authorized_company_context,
     get_deca_repository,
     get_email_delivery_repository,
     get_email_sender,
@@ -133,7 +134,7 @@ class ExpeditionEmailStatusResponse(BaseModel):
 async def emit_deca(
     expedition_id: str,
     payload: EmitDeCARequest = EmitDeCARequest(),
-    x_company_id: str | None = Header(None, alias="X-Company-Id"),
+    company_context: CompanyContext = Depends(get_authorized_company_context),
     expedition_repo: ExpeditionRepositoryPort = Depends(get_expedition_repository),
     deca_repo: DeCARepositoryPort = Depends(get_deca_repository),
     pdf_renderer: PdfRendererPort = Depends(get_pdf_renderer),
@@ -149,30 +150,6 @@ async def emit_deca(
             detail=f"Formato de identificador UUID inválido: '{expedition_id}'",
         ) from None
 
-    if x_company_id:
-        existing = expedition_repo.get_by_id(exp_uuid)
-        if existing and not existing.belongs_to(x_company_id):
-            if audit_service:
-                audit_service.record(
-                    AuditEvent(
-                        action=AuditAction.COMPANY_ACCESS_DENIED,
-                        entity_name="EXPEDITION",
-                        entity_id=existing.id,
-                        company_id=x_company_id,
-                        new_state={
-                            "requested_company": x_company_id,
-                            "actual_company": existing.company_id,
-                        },
-                    )
-                )
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=(
-                    f"Acceso denegado: la expedición pertenece a otra empresa "
-                    f"({existing.company_id})."
-                ),
-            )
-
     use_case = EmitDeCAUseCase(
         expedition_repo=expedition_repo,
         deca_repo=deca_repo,
@@ -185,6 +162,7 @@ async def emit_deca(
     input_dto = EmitDeCAInputDTO(
         expedition_id=expedition_id,
         actor=payload.actor,
+        company_id=company_context.company_id,
     )
 
     try:
@@ -222,7 +200,7 @@ async def emit_deca(
 )
 async def get_expedition_deca(
     expedition_id: str,
-    x_company_id: str | None = Header(None, alias="X-Company-Id"),
+    company_context: CompanyContext = Depends(get_authorized_company_context),
     deca_repo: DeCARepositoryPort = Depends(get_deca_repository),
     settings: Settings = Depends(get_settings),
 ) -> DeCAResponseDTO:
@@ -235,16 +213,10 @@ async def get_expedition_deca(
         ) from None
 
     deca: DeCA | None = deca_repo.find_by_expedition_id(exp_uuid)
-    if not deca or not deca.versions:
+    if not deca or not deca.versions or not deca.belongs_to(company_context.company_id):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"No se ha encontrado ningún DeCA emitido para la expedición '{expedition_id}'.",
-        )
-
-    if x_company_id and not deca.belongs_to(x_company_id):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"Acceso denegado: el DeCA pertenece a otra empresa ({deca.company_id}).",
         )
 
     v1 = deca.get_version(1)
@@ -282,21 +254,15 @@ async def get_expedition_deca(
 )
 async def get_deca_pdf(
     deca_code: str,
-    x_company_id: str | None = Header(None, alias="X-Company-Id"),
+    company_context: CompanyContext = Depends(get_authorized_company_context),
     deca_repo: DeCARepositoryPort = Depends(get_deca_repository),
     storage_service: StorageServicePort = Depends(get_storage_service),
 ) -> Response:
     deca: DeCA | None = deca_repo.find_by_code(deca_code)
-    if not deca:
+    if not deca or not deca.belongs_to(company_context.company_id):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"DeCA con código '{deca_code}' no encontrado.",
-        )
-
-    if x_company_id and not deca.belongs_to(x_company_id):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"Acceso denegado: el DeCA pertenece a otra empresa ({deca.company_id}).",
         )
 
     latest = deca.latest_version
@@ -338,7 +304,7 @@ async def get_deca_pdf(
 async def send_deca_email(
     expedition_id: str,
     payload: SendDeCAEmailRequest = SendDeCAEmailRequest(),
-    x_company_id: str | None = Header(None, alias="X-Company-Id"),
+    company_context: CompanyContext = Depends(get_authorized_company_context),
     expedition_repo: ExpeditionRepositoryPort = Depends(get_expedition_repository),
     deca_repo: DeCARepositoryPort = Depends(get_deca_repository),
     storage_service: StorageServicePort = Depends(get_storage_service),
@@ -355,29 +321,6 @@ async def send_deca_email(
             detail=f"Formato de identificador UUID inválido: '{expedition_id}'",
         ) from None
 
-    if x_company_id:
-        exp = expedition_repo.get_by_id(exp_uuid)
-        if exp and not exp.belongs_to(x_company_id):
-            if audit_service:
-                audit_service.record(
-                    AuditEvent(
-                        action=AuditAction.COMPANY_ACCESS_DENIED,
-                        entity_name="EXPEDITION",
-                        entity_id=exp.id,
-                        company_id=x_company_id,
-                        new_state={
-                            "requested_company": x_company_id,
-                            "actual_company": exp.company_id,
-                        },
-                    )
-                )
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=(
-                    f"Acceso denegado: la expedición pertenece a otra empresa ({exp.company_id})."
-                ),
-            )
-
     use_case = SendDeCAEmailUseCase(
         expedition_repo=expedition_repo,
         deca_repo=deca_repo,
@@ -392,6 +335,7 @@ async def send_deca_email(
         expedition_id=expedition_id,
         actor=payload.actor,
         force_resend=payload.force_resend,
+        company_id=company_context.company_id,
     )
 
     try:
@@ -420,7 +364,7 @@ async def send_deca_email(
 )
 async def get_expedition_email_status(
     expedition_id: str,
-    x_company_id: str | None = Header(None, alias="X-Company-Id"),
+    company_context: CompanyContext = Depends(get_authorized_company_context),
     expedition_repo: ExpeditionRepositoryPort = Depends(get_expedition_repository),
     deca_repo: DeCARepositoryPort = Depends(get_deca_repository),
     email_delivery_repo: EmailDeliveryRepositoryPort = Depends(get_email_delivery_repository),
@@ -433,20 +377,11 @@ async def get_expedition_email_status(
             detail=f"Formato de identificador UUID inválido: '{expedition_id}'",
         ) from None
 
-    expedition = expedition_repo.get_by_id(exp_uuid)
+    expedition = expedition_repo.get_by_id(exp_uuid, company_id=company_context.company_id)
     if not expedition:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Expedición '{expedition_id}' no encontrada.",
-        )
-
-    if x_company_id and not expedition.belongs_to(x_company_id):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=(
-                f"Acceso denegado: la expedición pertenece a otra empresa "
-                f"({expedition.company_id})."
-            ),
         )
 
     carrier_masked = (

@@ -586,7 +586,10 @@ def test_26_to_28_audit_events_recorded(tmp_path: Path) -> None:
     assert emitted[0].new_state["deca_code"] == "DECA-2026-000001"
 
     # 2. Emisión fallida por estado incorrecto
-    exp_unready = make_ready_expedition(status=ExpeditionStatus.PENDIENTE_MATRICULA)
+    exp_unready = make_ready_expedition(
+        internal_id="TD-2026-00002",
+        status=ExpeditionStatus.PENDIENTE_MATRICULA,
+    )
     exp_repo.save(exp_unready)
     with pytest.raises(ExpeditionNotReadyException):
         use_case.execute(EmitDeCAInputDTO(expedition_id=exp_unready.id, actor="OPERATOR_FAIL"))

@@ -6,6 +6,7 @@ from datetime import date
 import pytest
 from fastapi.testclient import TestClient
 
+from src.config.companies import TEST_API_KEY_TOMATES
 from src.config.settings import Settings
 from src.domain.entities.expedition import Expedition
 from src.domain.enums import ExpeditionStatus
@@ -25,6 +26,7 @@ def repo_with_expedition() -> tuple[InMemoryExpeditionRepository, Expedition]:
         internal_id="TD-2026-00001",
         reference="ALB-9999",
         fiscal_year="2026",
+        company_id="TOMATES_DE_AUTOR",
         transport_date=date.today(),
         shipper_name="Tomates de Autor S.L.",
         shipper_tax_id=NIF("B12345678"),
@@ -51,6 +53,7 @@ def expedition_client(
     app = create_app(test_settings)
     app.dependency_overrides[get_expedition_repository] = lambda: repo
     with TestClient(app) as client:
+        client.headers["Authorization"] = f"Bearer {TEST_API_KEY_TOMATES}"
         yield client
 
 

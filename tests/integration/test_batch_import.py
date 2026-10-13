@@ -6,6 +6,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 from reportlab.pdfgen import canvas
 
+from src.config.companies import TEST_API_KEY_TOMATES
 from src.application.ports.expedition_repository import ExpeditionRepositoryPort
 from src.application.use_cases.import_documents_batch import (
     ImportDocumentsBatchUseCase,
@@ -38,15 +39,21 @@ class InMemoryExpeditionRepo(ExpeditionRepositoryPort):
     def __init__(self) -> None:
         self.expeditions: dict[str, Expedition] = {}
 
-    def save(self, expedition: Expedition) -> Expedition:
+    def save(self, expedition: Expedition, company_id: str | None = None) -> Expedition:
+        if company_id and not expedition.company_id:
+            expedition.company_id = company_id
         self.expeditions[str(expedition.id)] = expedition
         return expedition
 
     def get_by_id(self, expedition_id) -> Expedition | None:
         return self.expeditions.get(str(expedition_id))
 
-    def find_by_reference(self, reference: str, fiscal_year: str) -> Expedition | None:
+    def find_by_reference(
+        self, reference: str, fiscal_year: str, company_id: str | None = None
+    ) -> Expedition | None:
         for exp in self.expeditions.values():
+            if company_id and exp.company_id and exp.company_id != company_id:
+                continue
             if exp.reference == reference and exp.fiscal_year == fiscal_year:
                 return exp
         return None
@@ -56,14 +63,30 @@ class InMemoryExpeditionRepo(ExpeditionRepositoryPort):
             e for e in self.expeditions.values() if e.status == ExpeditionStatus.PENDIENTE_MATRICULA
         ]
 
+    def next_internal_id(
+        self, fiscal_year: str, company_id: str | None = None, prefix: str = "TD"
+    ) -> str:
+        count = (
+            sum(
+                1
+                for e in self.expeditions.values()
+                if e.fiscal_year == fiscal_year and (not company_id or e.company_id == company_id)
+            )
+            + 1
+        )
+        return f"{prefix}-{fiscal_year}-{count:05d}"
+
     def find_duplicate_cargo(
         self,
         fiscal_year: str,
         transport_date,
         destination: str | None,
         weight_kg: float | None,
+        company_id: str | None = None,
     ) -> Expedition | None:
         for exp in self.expeditions.values():
+            if company_id and exp.company_id and exp.company_id != company_id:
+                continue
             if exp.fiscal_year != fiscal_year:
                 continue
             if transport_date and exp.transport_date != transport_date:
@@ -241,6 +264,7 @@ def test_api_import_batch_endpoint(client: TestClient) -> None:
 
     response = client.post(
         "/api/v1/documents/import-batch",
+        headers={"Authorization": f"Bearer {TEST_API_KEY_TOMATES}"},
         files=[
             ("files", ("cp1.pdf", pdf1, "application/pdf")),
             ("files", ("cmr2.pdf", pdf2, "application/pdf")),
@@ -378,3 +402,200 @@ def test_batch_import_concurrency_config(tmp_path: Path) -> None:
     assert result.imported_count == 8
     assert result.duplicates_count == 0
     assert len(repo.expeditions) == 8
+
+
+def test_batch_import_cross_tenant_pdf_rejected(tmp_path: Path) -> None:
+    """Verifica que un PDF de otra empresa registrada se RECHACE completamente
+    sin persistir en base de datos ni escribir en disco cuando el tenant autenticado difiere."""
+    importer = PdfDocumentImporter(CompositeDocumentParser())
+    storage = FilesystemStorageAdapter(tmp_path)
+    repo = InMemoryExpeditionRepo()
+    use_case = ImportDocumentsBatchUseCase(importer=importer, storage=storage, expedition_repo=repo)
+
+    araba_pdf = create_sample_pdf(
+        [
+            "CULTIVOS ARABA S.L.",
+            "CARTA DE PORTE NACIONAL",
+            "Documento Nº: CP-ARABA-0099",
+            "Fecha Transporte: 03/10/2026",
+            "Cargador: Cultivos Araba S.L.",
+            "CIF Cargador: B01987654",
+            "Lugar de Carga: Vitoria-Gasteiz",
+            "Lugar de Descarga: Bilbao Muelle 3",
+            "Mercancía: Patata de Álava",
+            "Peso Bruto: 22.000 kg",
+        ]
+    )
+
+    files = [UploadedFileInput("araba_doc.pdf", io.BytesIO(araba_pdf), araba_pdf)]
+
+    # El cliente se autentica como TOMATES_DE_AUTOR pero sube un PDF de CULTIVOS_ARABA
+    result = use_case.execute(files, company_id="TOMATES_DE_AUTOR")
+
+    assert result.total_files == 1
+    assert result.rejected_count == 1
+    assert result.imported_count == 0
+    assert result.review_needed_count == 0
+    assert result.items[0].status == "REJECTED"
+    assert "Conflicto de tenant" in result.items[0].message
+    assert result.items[0].company_id == "CULTIVOS_ARABA"
+
+    # Ninguna expedición persistida en el repositorio
+    assert len(repo.expeditions) == 0
+
+    # Ningún archivo guardado en el almacenamiento físico
+    saved_files = list(tmp_path.rglob("*.pdf"))
+    assert len(saved_files) == 0
+
+
+def test_batch_import_unrecognized_shipper_assigned_to_authorized_tenant_needing_review(
+    tmp_path: Path,
+) -> None:
+    """Verifica que un documento con cargador no registrado se asigne al tenant autenticado,
+    pero se marque como PENDIENTE_REVISION requiriendo revisión manual de empresa emisora."""
+    importer = PdfDocumentImporter(CompositeDocumentParser())
+    storage = FilesystemStorageAdapter(tmp_path)
+    repo = InMemoryExpeditionRepo()
+    use_case = ImportDocumentsBatchUseCase(importer=importer, storage=storage, expedition_repo=repo)
+
+    unknown_shipper_pdf = create_sample_pdf(
+        [
+            "AGRÍCOLA EL MEDITERRÁNEO S.L.",
+            "CARTA DE PORTE NACIONAL",
+            "Documento Nº: CP-MED-00123",
+            "Fecha: 03/10/2026",
+            "Cargador: Agrícola El Mediterráneo S.L.",
+            "CIF Cargador: B99887766",
+            "Lugar de Carga: El Ejido",
+            "Lugar de Descarga: Zaragoza",
+            "Mercancía: Pimientos Padrón",
+            "Peso Bruto: 8500 kg",
+        ]
+    )
+
+    files = [UploadedFileInput("unknown_doc.pdf", io.BytesIO(unknown_shipper_pdf), unknown_shipper_pdf)]
+
+    result = use_case.execute(files, company_id="TOMATES_DE_AUTOR")
+
+    assert result.total_files == 1
+    assert result.rejected_count == 0
+    assert result.review_needed_count == 1
+    assert result.imported_count == 0
+    assert result.items[0].status == "NEEDS_REVIEW"
+    assert "empresa_emisora" in result.items[0].fields_needing_review
+
+    # La expedición existe y pertenece al tenant autenticado, preservando los datos del cargador real
+    assert len(repo.expeditions) == 1
+    saved_exp = list(repo.expeditions.values())[0]
+    assert saved_exp.company_id == "TOMATES_DE_AUTOR"
+    assert saved_exp.shipper_name == "Agrícola El Mediterráneo S.L."
+    assert saved_exp.status == ExpeditionStatus.PENDIENTE_REVISION
+
+
+def test_batch_import_mix_valid_cross_tenant_and_unrecognized(tmp_path: Path) -> None:
+    """Verifica un lote heterogéneo: un documento propio, un documento de otra empresa registrada,
+    y un documento de cargador desconocido."""
+    importer = PdfDocumentImporter(CompositeDocumentParser())
+    storage = FilesystemStorageAdapter(tmp_path)
+    repo = InMemoryExpeditionRepo()
+    use_case = ImportDocumentsBatchUseCase(importer=importer, storage=storage, expedition_repo=repo)
+
+    # 1. Documento legítimo de TOMATES_DE_AUTOR
+    pdf_legit = create_sample_pdf(
+        [
+            "TOMATES DE AUTOR S.L.",
+            "CARTA DE PORTE NACIONAL",
+            "Documento Nº: CP-LEGIT-01",
+            "Fecha: 03/10/2026",
+            "Cargador: Tomates de Autor S.L.",
+            "CIF Cargador: B04123456",
+            "Origen: El Ejido",
+            "Destino: Mercamadrid",
+            "Mercancía: Tomates",
+            "Peso: 15000 kg",
+        ]
+    )
+    # 2. Documento de CULTIVOS_ARABA (debe ser rechazado)
+    pdf_cross = create_sample_pdf(
+        [
+            "CULTIVOS ARABA S.L.",
+            "CARTA DE PORTE NACIONAL",
+            "Documento Nº: CP-CROSS-02",
+            "Fecha: 03/10/2026",
+            "Cargador: Cultivos Araba S.L.",
+            "CIF Cargador: B01987654",
+            "Origen: Vitoria",
+            "Destino: Bilbao",
+            "Mercancía: Patatas",
+            "Peso: 12000 kg",
+        ]
+    )
+    # 3. Documento con cargador no registrado (debe quedar en revisión para el tenant)
+    pdf_unknown = create_sample_pdf(
+        [
+            "FRUTAS DEL SUR S.L.",
+            "CARTA DE PORTE NACIONAL",
+            "Documento Nº: CP-UNK-03",
+            "Fecha: 03/10/2026",
+            "Cargador: Frutas del Sur S.L.",
+            "CIF Cargador: B55443322",
+            "Origen: Motril",
+            "Destino: Granada",
+            "Mercancía: Aguacates",
+            "Peso: 6000 kg",
+        ]
+    )
+
+    files = [
+        UploadedFileInput("legit.pdf", io.BytesIO(pdf_legit), pdf_legit),
+        UploadedFileInput("cross.pdf", io.BytesIO(pdf_cross), pdf_cross),
+        UploadedFileInput("unknown.pdf", io.BytesIO(pdf_unknown), pdf_unknown),
+    ]
+
+    result = use_case.execute(files, company_id="TOMATES_DE_AUTOR")
+
+    assert result.total_files == 3
+    assert result.imported_count == 1
+    assert result.rejected_count == 1
+    assert result.review_needed_count == 1
+
+    # Exactamente 2 expediciones persistidas, ambas asignadas al tenant autenticado
+    assert len(repo.expeditions) == 2
+    for exp in repo.expeditions.values():
+        assert exp.company_id == "TOMATES_DE_AUTOR"
+
+
+def test_api_import_batch_cross_tenant_rejection(client: TestClient) -> None:
+    """Verifica que el endpoint API rechace con status REJECTED un PDF perteneciente
+    a otra empresa que la autorizada por la API Key."""
+    araba_pdf = create_sample_pdf(
+        [
+            "CULTIVOS ARABA S.L.",
+            "CARTA DE PORTE NACIONAL",
+            "Documento Nº: CP-API-CROSS-01",
+            "Fecha: 03/10/2026",
+            "Cargador: Cultivos Araba S.L.",
+            "CIF Cargador: B01987654",
+            "Origen: Vitoria",
+            "Destino: San Sebastián",
+            "Mercancía: Remolacha",
+            "Peso: 18000 kg",
+        ]
+    )
+
+    response = client.post(
+        "/api/v1/documents/import-batch",
+        headers={"Authorization": f"Bearer {TEST_API_KEY_TOMATES}"},
+        files=[
+            ("files", ("cross_araba.pdf", araba_pdf, "application/pdf")),
+        ],
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total_files"] == 1
+    assert data["rejected_count"] == 1
+    assert data["imported_count"] == 0
+    assert data["items"][0]["status"] == "REJECTED"
+    assert "Conflicto de tenant" in data["items"][0]["message"]
+

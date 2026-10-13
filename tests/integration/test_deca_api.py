@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+from src.config.companies import TEST_API_KEY_TOMATES
 from src.config.settings import Settings
 from src.domain.entities.expedition import Expedition
 from src.domain.enums import ExpeditionStatus, VehicleType
@@ -44,6 +45,7 @@ def isolated_context(
         internal_id="TD-2026-00001",
         reference="ALB-2026-9999",
         fiscal_year="2026",
+        company_id="TOMATES_DE_AUTOR",
         transport_date=date(2026, 10, 15),
         shipper_name="Tomates de Autor S.L.",
         shipper_tax_id=NIF("B12345678"),
@@ -73,6 +75,7 @@ def isolated_context(
     app.dependency_overrides[get_storage_service] = lambda: storage
 
     with TestClient(app) as client:
+        client.headers["Authorization"] = f"Bearer {TEST_API_KEY_TOMATES}"
         yield client, exp_repo, deca_repo, audit_service, storage, exp
 
 

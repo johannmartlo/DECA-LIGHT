@@ -19,6 +19,7 @@ from src.domain.exceptions import (
 )
 from src.domain.services.deca_validator import DeCAValidator
 from src.domain.services.vehicle_normalizer import VehicleRegistrationNormalizer
+from src.domain.value_objects import CompanyContext
 
 logger = logging.getLogger("deca_light.use_cases.assign_vehicle")
 
@@ -35,13 +36,19 @@ class AssignVehicleToExpeditionUseCase:
         self.audit_service = audit_service
 
     def execute(self, input_dto: AssignVehicleInputDTO) -> AssignVehicleResultDTO:
-        # 1. Comprobar que la expedición existe
+        # Validar contexto de empresa si se proporciona
+        if input_dto.company_id:
+            CompanyContext.create(input_dto.company_id, actor=input_dto.actor)
+
+        # 1. Comprobar que la expedición existe dentro del tenant
         exp_id = (
             uuid.UUID(str(input_dto.expedition_id))
             if not isinstance(input_dto.expedition_id, uuid.UUID)
             else input_dto.expedition_id
         )
-        expedition: Expedition | None = self.expedition_repo.get_by_id(exp_id)
+        expedition: Expedition | None = self.expedition_repo.get_by_id(
+            exp_id, company_id=input_dto.company_id
+        )
         if not expedition:
             raise EntityNotFoundException(
                 f"Expedición con ID '{input_dto.expedition_id}' no encontrada."
@@ -244,7 +251,7 @@ class AssignVehicleToExpeditionUseCase:
                 events_recorded.append(AuditAction.VALIDATION_FAILED)
 
         # 10. Persistir cambios
-        self.expedition_repo.save(expedition)
+        self.expedition_repo.save(expedition, company_id=input_dto.company_id)
 
         return AssignVehicleResultDTO(
             expedition_id=str(expedition.id),

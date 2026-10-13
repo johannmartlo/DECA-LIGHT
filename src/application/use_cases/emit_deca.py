@@ -22,6 +22,7 @@ from src.domain.exceptions import (
 )
 from src.domain.services.deca_engine import DeCAEngine
 from src.domain.services.public_token_service import PublicDeCaTokenService
+from src.domain.value_objects import CompanyContext
 
 
 class EmitDeCAUseCase:
@@ -46,6 +47,9 @@ class EmitDeCAUseCase:
 
     def execute(self, input_dto: EmitDeCAInputDTO) -> EmitDeCAResultDTO:
         """Ejecuta la emisión del DeCA garantizando atomicidad, idempotencia e inmutabilidad."""
+        if input_dto.company_id:
+            CompanyContext.create(input_dto.company_id, actor=input_dto.actor)
+
         try:
             exp_uuid = (
                 uuid.UUID(str(input_dto.expedition_id))
@@ -59,7 +63,9 @@ class EmitDeCAUseCase:
 
         with self._lock:
             # 1. Comprobar existencia de la expedición
-            expedition: Expedition | None = self.expedition_repo.get_by_id(exp_uuid)
+            expedition: Expedition | None = self.expedition_repo.get_by_id(
+                exp_uuid, company_id=input_dto.company_id
+            )
             if not expedition:
                 raise EntityNotFoundException(
                     f"Expedición con ID '{input_dto.expedition_id}' no encontrada."
@@ -214,7 +220,7 @@ class EmitDeCAUseCase:
 
             # 9. Transición de estado de la Expedición a DECA_GENERADO
             expedition.status = ExpeditionStatus.DECA_GENERADO
-            self.expedition_repo.save(expedition)
+            self.expedition_repo.save(expedition, company_id=input_dto.company_id)
 
             # 10. Registrar auditoría de emisión exitosa
             if self.audit_service:

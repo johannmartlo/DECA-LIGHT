@@ -51,3 +51,15 @@ class CompanyMismatchException(DomainException):
 
 class CompanyNotConfiguredException(DomainException):
     """Lanzada cuando la empresa emisora no existe, está inactiva o carece de configuración."""
+
+
+class UnauthorizedCompanyContextException(DomainException):
+    """Lanzada cuando una operación multiempresa carece de contexto empresarial verificado o autorizado."""
+
+
+class AuthenticationException(DomainException):
+    """Lanzada cuando las credenciales de acceso M2M son inválidas o inexistentes."""
+
+
+class ForbiddenTenantException(UnauthorizedCompanyContextException):
+    """Lanzada cuando una identidad autenticada intenta operar sobre una empresa no autorizada."""

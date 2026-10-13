@@ -4,7 +4,10 @@ import re
 from dataclasses import dataclass, field
 
 from src.domain.enums import FieldExtractionStatus
-from src.domain.exceptions import ValidationException
+from src.domain.exceptions import (
+    UnauthorizedCompanyContextException,
+    ValidationException,
+)
 
 
 @dataclass(frozen=True)
@@ -219,3 +222,41 @@ class EmailAddress:
         else:
             masked_local = f"{local[:2]}***"
         return f"{masked_local}@{domain}"
+
+
+_COMPANY_ID_RE = re.compile(r"^[A-Z0-9_]{2,40}$")
+
+
+@dataclass(frozen=True)
+class CompanyContext:
+    """Contexto empresarial autorizado para delimitar la frontera de un tenant.
+
+    Garantiza que el company_id no es una cadena arbitraria ni nula, sino un
+    identificador con formato canónico validado y una fuente de autoridad.
+    """
+
+    company_id: str
+    actor: str = "SYSTEM"
+    is_verified: bool = True
+
+    def __post_init__(self) -> None:
+        if not self.company_id or not isinstance(self.company_id, str) or not self.company_id.strip():
+            raise UnauthorizedCompanyContextException(
+                "Operación multiempresa rechazada: el contexto empresarial no puede ser nulo ni vacío."
+            )
+        clean = self.company_id.strip()
+        if not _COMPANY_ID_RE.match(clean):
+            raise UnauthorizedCompanyContextException(
+                f"Contexto empresarial inválido: '{self.company_id}' no cumple el formato canónico (2-40 caracteres A-Z, 0-9 o '_')."
+            )
+        if not self.is_verified:
+            raise UnauthorizedCompanyContextException(
+                f"Contexto empresarial no verificado: '{self.company_id}' carece de autorización."
+            )
+
+    @classmethod
+    def create(cls, company_id: str | None, actor: str = "SYSTEM", is_verified: bool = True) -> CompanyContext:
+        """Factoría canónica para crear un contexto empresarial verificado."""
+        cid = str(company_id).strip() if company_id is not None else ""
+        act = str(actor).strip() if actor is not None else "SYSTEM"
+        return cls(company_id=cid, actor=act, is_verified=is_verified)

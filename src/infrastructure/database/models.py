@@ -172,9 +172,14 @@ class ExpeditionORM(Base):
     """Modelo ORM para expediciones de transporte."""
 
     __tablename__ = "expeditions"
+    __table_args__ = (
+        UniqueConstraint(
+            "company_id", "internal_id", name="uq_expeditions_company_internal_id"
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    internal_id: Mapped[str] = mapped_column(String(50), nullable=False, unique=True, index=True)
+    internal_id: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
     document_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid(as_uuid=True),
         ForeignKey("documents.id", ondelete="SET NULL"),

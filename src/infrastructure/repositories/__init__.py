@@ -10,10 +10,14 @@ from src.infrastructure.repositories.in_memory_expedition_repository import (
 from src.infrastructure.repositories.sqlalchemy_company_repository import (
     SqlAlchemyCompanyRepository,
 )
+from src.infrastructure.repositories.sqlalchemy_expedition_repository import (
+    SqlAlchemyExpeditionRepository,
+)
 
 __all__ = [
     "InMemoryCompanyRepository",
     "InMemoryDeCARepository",
     "InMemoryExpeditionRepository",
     "SqlAlchemyCompanyRepository",
+    "SqlAlchemyExpeditionRepository",
 ]

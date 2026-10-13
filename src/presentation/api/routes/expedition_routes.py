@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
 from src.application.dtos.vehicle_assignment_dto import (
@@ -22,8 +22,10 @@ from src.domain.exceptions import (
     InvalidVehicleConfigurationException,
     ValidationException,
 )
+from src.domain.value_objects import CompanyContext
 from src.presentation.api.dependencies import (
     get_audit_service,
+    get_authorized_company_context,
     get_expedition_repository,
 )
 
@@ -93,7 +95,7 @@ class ExpeditionDetailDTO(BaseModel):
 async def assign_vehicle(
     expedition_id: str,
     payload: AssignVehicleRequest,
-    x_company_id: str | None = Header(None, alias="X-Company-Id"),
+    company_context: CompanyContext = Depends(get_authorized_company_context),
     expedition_repo: ExpeditionRepositoryPort = Depends(get_expedition_repository),
     audit_service: AuditServicePort | None = Depends(get_audit_service),
 ) -> AssignVehicleResultDTO:
@@ -104,31 +106,6 @@ async def assign_vehicle(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Formato de identificador UUID inválido: '{expedition_id}'",
         ) from None
-
-    # Verificación de aislamiento multiempresa si se especifica cabecera de contexto
-    if x_company_id:
-        existing = expedition_repo.get_by_id(exp_uuid)
-        if existing and not existing.belongs_to(x_company_id):
-            if audit_service:
-                audit_service.record(
-                    AuditEvent(
-                        action=AuditAction.COMPANY_ACCESS_DENIED,
-                        entity_name="EXPEDITION",
-                        entity_id=existing.id,
-                        company_id=x_company_id,
-                        new_state={
-                            "requested_company": x_company_id,
-                            "actual_company": existing.company_id,
-                        },
-                    )
-                )
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=(
-                    f"Acceso denegado: la expedición pertenece a otra empresa "
-                    f"({existing.company_id})."
-                ),
-            )
 
     use_case = AssignVehicleToExpeditionUseCase(
         expedition_repo=expedition_repo, audit_service=audit_service
@@ -142,6 +119,7 @@ async def assign_vehicle(
         carrier_tax_id=payload.carrier_tax_id,
         carrier_email=payload.carrier_email,
         actor=payload.actor,
+        company_id=company_context.company_id,
     )
 
     try:
@@ -163,7 +141,7 @@ async def assign_vehicle(
 )
 async def get_expedition_validation(
     expedition_id: str,
-    x_company_id: str | None = Header(None, alias="X-Company-Id"),
+    company_context: CompanyContext = Depends(get_authorized_company_context),
     expedition_repo: ExpeditionRepositoryPort = Depends(get_expedition_repository),
 ) -> dict:
     try:
@@ -176,23 +154,16 @@ async def get_expedition_validation(
 
     use_case = ValidateExpeditionUseCase(expedition_repo=expedition_repo)
     try:
-        expedition, validation = use_case.execute(exp_uuid)
+        expedition, validation = use_case.execute(
+            exp_uuid, company_id=company_context.company_id
+        )
     except EntityNotFoundException as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-
-    if x_company_id and not expedition.belongs_to(x_company_id):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=(
-                f"Acceso denegado: la expedición pertenece a otra empresa "
-                f"({expedition.company_id})."
-            ),
-        )
 
     return {
         "expedition_id": str(expedition.id),
         "internal_id": expedition.internal_id,
-        "company_id": expedition.company_id or "TOMATES_DE_AUTOR",
+        "company_id": expedition.company_id or company_context.company_id,
         "status": str(expedition.status),
         "valid": validation.valid,
         "is_ready_for_deca": validation.valid,
@@ -213,7 +184,7 @@ async def get_expedition_validation(
 )
 async def get_expedition_detail(
     expedition_id: str,
-    x_company_id: str | None = Header(None, alias="X-Company-Id"),
+    company_context: CompanyContext = Depends(get_authorized_company_context),
     expedition_repo: ExpeditionRepositoryPort = Depends(get_expedition_repository),
 ) -> ExpeditionDetailDTO:
     try:
@@ -224,25 +195,18 @@ async def get_expedition_detail(
             detail=f"Formato de identificador UUID inválido: '{expedition_id}'",
         ) from None
 
-    expedition: Expedition | None = expedition_repo.get_by_id(exp_uuid)
+    expedition: Expedition | None = expedition_repo.get_by_id(
+        exp_uuid, company_id=company_context.company_id
+    )
     if not expedition:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Expedición con ID '{expedition_id}' no encontrada.",
         )
 
-    if x_company_id and not expedition.belongs_to(x_company_id):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=(
-                f"Acceso denegado: la expedición pertenece a otra empresa "
-                f"({expedition.company_id})."
-            ),
-        )
-
     return ExpeditionDetailDTO(
         id=str(expedition.id),
-        company_id=expedition.company_id or "TOMATES_DE_AUTOR",
+        company_id=expedition.company_id or company_context.company_id,
         internal_id=expedition.internal_id,
         reference=expedition.reference,
         fiscal_year=expedition.fiscal_year,

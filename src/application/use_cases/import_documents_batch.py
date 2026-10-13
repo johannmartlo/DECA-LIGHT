@@ -1,4 +1,5 @@
 import concurrent.futures
+from functools import partial
 import hashlib
 import io
 import logging
@@ -73,31 +74,42 @@ class ImportDocumentsBatchUseCase:
         self._in_flight_business_keys: set[str] = set()
         self._lock = threading.Lock()
 
-    def execute(self, files: list[UploadedFileInput]) -> BatchImportResultDTO:
+    def execute(
+        self, files: list[UploadedFileInput], company_id: str | None = None
+    ) -> BatchImportResultDTO:
         total_files = len(files)
         logger.info(
-            "Iniciando importación por lote de %d archivos (concurrencia máx: %d)",
+            "Iniciando importación por lote de %d archivos (concurrencia máx: %d, tenant: %s)",
             total_files,
             self.max_concurrency,
+            company_id or "NO_ESPECIFICADO",
         )
 
         if total_files <= 1:
-            items = [self._process_single_file(f) for f in files]
+            items = [
+                self._process_single_file(f, authorized_company_id=company_id)
+                for f in files
+            ]
         else:
             workers = min(total_files, self.max_concurrency)
+            process_fn = partial(
+                self._process_single_file, authorized_company_id=company_id
+            )
             with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
-                items = list(executor.map(self._process_single_file, files))
+                items = list(executor.map(process_fn, files))
 
         imported_count = sum(1 for item in items if item.status in ("PENDING_VEHICLE", "IMPORTED"))
         duplicates_count = sum(1 for item in items if item.status == "DUPLICATE")
         review_needed_count = sum(1 for item in items if item.status == "NEEDS_REVIEW")
+        rejected_count = sum(1 for item in items if item.status == "REJECTED")
 
         logger.info(
-            "Fin de lote: Total=%d, Importados=%d, Duplicados=%d, PendientesRevisión=%d",
+            "Fin de lote: Total=%d, Importados=%d, Duplicados=%d, PendientesRevisión=%d, Rechazados=%d",
             total_files,
             imported_count,
             duplicates_count,
             review_needed_count,
+            rejected_count,
         )
 
         return BatchImportResultDTO(
@@ -106,9 +118,14 @@ class ImportDocumentsBatchUseCase:
             duplicates_count=duplicates_count,
             review_needed_count=review_needed_count,
             items=items,
+            rejected_count=rejected_count,
         )
 
-    def _process_single_file(self, file_input: UploadedFileInput) -> ImportResultItemDTO:
+    def _process_single_file(
+        self,
+        file_input: UploadedFileInput,
+        authorized_company_id: str | None = None,
+    ) -> ImportResultItemDTO:
         filename = file_input.filename
         content = file_input.get_bytes()
         sha256_hash = hashlib.sha256(content).hexdigest()
@@ -178,10 +195,40 @@ class ImportDocumentsBatchUseCase:
             else:
                 company_detection_failed = True
 
+        # Validación multiempresa (multi-tenant) e integridad de pertenencia:
+        if authorized_company_id:
+            if detected_company_id and detected_company_id != authorized_company_id:
+                # Conflicto estricto de tenant: el documento pertenece a otra empresa registrada en la plataforma
+                with self._lock:
+                    self._processed_hashes.discard(sha256_hash)
+                logger.warning(
+                    "Rechazado documento '%s': pertenece a '%s' pero el tenant autenticado es '%s'",
+                    filename,
+                    detected_company_id,
+                    authorized_company_id,
+                )
+                return ImportResultItemDTO(
+                    filename=filename,
+                    sha256_hash=sha256_hash,
+                    format_type=normalized.format_type,
+                    reference=ref_val,
+                    status="REJECTED",
+                    company_id=detected_company_id,
+                    message=(
+                        f"Conflicto de tenant: el documento pertenece a la empresa "
+                        f"'{detected_company_id}', no autorizada para el tenant activo '{authorized_company_id}'."
+                    ),
+                )
+            # Concordancia o cargador externo no registrado: pertenece al tenant autenticado
+            effective_company_id = authorized_company_id
+        else:
+            # Compatibilidad hacia atrás (ejecución sin contexto de autenticación explícito)
+            effective_company_id = detected_company_id or ""
+
         # 3. Deduplicación por clave de negocio según formato y empresa (Prompt 03.5 + 7.5)
         with self._lock:
             business_key: str | None = None
-            company_prefix = detected_company_id or "UNKNOWN"
+            company_prefix = effective_company_id or "UNKNOWN"
             if normalized.format_type == DocumentFormatType.CMR:
                 cmr_ref = (
                     normalized.external_reference.value
@@ -214,7 +261,7 @@ class ImportDocumentsBatchUseCase:
                     format_type=normalized.format_type,
                     reference=ref_val,
                     status="DUPLICATE",
-                    company_id=detected_company_id,
+                    company_id=effective_company_id or None,
                     message=(
                         f"Ya existe una expedición registrada para esta operación "
                         f"({normalized.format_type} en ejercicio {year_val})."
@@ -232,7 +279,7 @@ class ImportDocumentsBatchUseCase:
                     if cmr_ref:
                         try:
                             existing = self.expedition_repo.find_by_reference(
-                                cmr_ref, year_val, company_id=detected_company_id
+                                cmr_ref, year_val, company_id=effective_company_id or None
                             )
                         except TypeError:
                             existing = self.expedition_repo.find_by_reference(cmr_ref, year_val)
@@ -242,7 +289,7 @@ class ImportDocumentsBatchUseCase:
                             existing = self.expedition_repo.find_by_reference(
                                 normalized.external_reference.value,
                                 year_val,
-                                company_id=detected_company_id,
+                                company_id=effective_company_id or None,
                             )
                         except TypeError:
                             existing = self.expedition_repo.find_by_reference(
@@ -262,7 +309,7 @@ class ImportDocumentsBatchUseCase:
                                     transport_date=normalized.loading_date.value,
                                     destination=dest_val,
                                     weight_kg=cargo_weight,
-                                    company_id=detected_company_id,
+                                    company_id=effective_company_id or None,
                                 )
                             except TypeError:
                                 existing = self.expedition_repo.find_duplicate_cargo(
@@ -279,7 +326,7 @@ class ImportDocumentsBatchUseCase:
                     format_type=normalized.format_type,
                     reference=ref_val,
                     status="DUPLICATE",
-                    company_id=detected_company_id,
+                    company_id=effective_company_id or None,
                     expedition_id=str(existing.id),
                     message=(
                         f"Ya existe una expedición registrada para esta operación "
@@ -367,8 +414,10 @@ class ImportDocumentsBatchUseCase:
             int_id = ""
             if self.expedition_repo and hasattr(self.expedition_repo, "next_internal_id"):
                 try:
-                    int_id = self.expedition_repo.next_internal_id(year_val)
-                except NotImplementedError:
+                    int_id = self.expedition_repo.next_internal_id(
+                        year_val, company_id=effective_company_id or None
+                    )
+                except (NotImplementedError, TypeError):
                     int_id = f"TD-{year_val}-{sha256_hash[:5].upper()}"
             if not int_id:
                 int_id = f"TD-{year_val}-{sha256_hash[:5].upper()}"
@@ -376,7 +425,7 @@ class ImportDocumentsBatchUseCase:
         expedition = Expedition(
             internal_id=int_id,
             document_id=source_doc.id,
-            company_id=detected_company_id or "",
+            company_id=effective_company_id,
             issuer_detection_confidence=det_confidence,
             issuer_detection_source=det_source,
             reference=ref_str,
@@ -392,7 +441,8 @@ class ImportDocumentsBatchUseCase:
             extraction_metadata={
                 "format_type": str(normalized.format_type),
                 "format_confidence": normalized.format_confidence,
-                "company_id": detected_company_id,
+                "company_id": effective_company_id or None,
+                "detected_company_id": detected_company_id,
                 "company_detection_source": det_source,
                 "company_detection_confidence": det_confidence,
                 "document_number": normalized.document_number.value,
@@ -409,7 +459,14 @@ class ImportDocumentsBatchUseCase:
 
         with self._lock:
             if self.expedition_repo:
-                saved_exp = self.expedition_repo.save(expedition)
+                if hasattr(self.expedition_repo, "save_with_id_retry"):
+                    saved_exp = self.expedition_repo.save_with_id_retry(
+                        expedition, fiscal_year=year_val, company_id=effective_company_id or None
+                    )
+                else:
+                    saved_exp = self.expedition_repo.save(
+                        expedition, company_id=effective_company_id or None
+                    )
                 exp_id_str = str(saved_exp.id)
             else:
                 exp_id_str = str(expedition.id)
@@ -432,7 +489,7 @@ class ImportDocumentsBatchUseCase:
                     },
                 )
             )
-            if detected_company_id:
+            if effective_company_id:
                 self.audit_service.record(
                     AuditEvent(
                         action=AuditAction.COMPANY_DETECTED,
@@ -440,7 +497,8 @@ class ImportDocumentsBatchUseCase:
                         entity_id=expedition.id,
                         company_id=expedition.company_id,
                         new_state={
-                            "company_id": detected_company_id,
+                            "company_id": effective_company_id,
+                            "detected_company_id": detected_company_id,
                             "confidence": det_confidence,
                             "source": det_source,
                         },

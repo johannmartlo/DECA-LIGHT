@@ -1,10 +1,10 @@
 # DECA LIGHT — ESTADO DEL PROYECTO (PROJECT_STATE.md)
 
 **Fecha de actualización:** 13 de octubre de 2026
-**Fase actual:** Fase 6 — Implementación de Adaptadores de Persistencia SQLAlchemy (Subfase 6.1 completada)
-**Último commit conocido (Git):** `a70fbf313d5a3209375a549501c418013bfc8d8f` (`feat: add SQLAlchemy ORM models, initial Alembic migration and persistence tests` en rama `master`)
+**Fase actual:** Fase 6 — Implementación de Adaptadores de Persistencia SQLAlchemy (Subfase 6.3.1 completada: Cierre de brechas de aislamiento multiempresa y concurrencia)
+**Último commit conocido (Git):** `873ef91372d184e8fce22f7e8bf431434fea6ac4` (`feat: add SQLAlchemy company repository adapter` en rama `master`, sincronizado con `origin/master`)
 **Workspace:** `C:\Users\juani\Documents\Codex\2026-10-03\referenced-chatgpt-conversation-this-is-an`  
-**Repositorio Remoto Oficial:** `https://github.com/johannmartlo/DECA-LIGHT` (Estado: 100% vacío, verificado no destructivamente)  
+**Repositorio Remoto Oficial:** `https://github.com/johannmartlo/DECA-LIGHT` (Estado: Sincronizado en commit `873ef91372d184e8fce22f7e8bf431434fea6ac4`)
 **Copia de Seguridad Externa:** `C:\Users\juani\Documents\Codex\2026-10-03\backup_deca_light_phase3a` (Estado: Intacta y verificada)
 
 ---
@@ -12,27 +12,30 @@
 ## 1. RESUMEN EJECUTIVO Y ESTADO DE GIT
 
 El proyecto DECA Light avanza en la Fase 6 de persistencia relacional con SQLAlchemy 2.0 y Alembic.
-Se ha completado con éxito la **Subfase 6.1**:
-- Unificación del contrato `CompanyRepositoryPort` incorporando el método abstracto `save(company: Company) -> Company`.
-- Implementación del primer adaptador de base de datos relacional: `SqlAlchemyCompanyRepository`.
-- Creación de 8 tests de integración específicos con SQLite y `PRAGMA foreign_keys=ON;`.
-- Verificación completa de la suite: **208 tests superados**, 0 fallos, 1 advertencia externa.
-- La API de FastAPI continúa operando exclusivamente sobre repositorios en memoria (`InMemoryCompanyRepository`).
+Se han completado con éxito la **Subfase 6.1**, la **Subfase 6.2** y la **Subfase 6.3.1**:
+- **Subfase 6.1:** Unificación del contrato `CompanyRepositoryPort` y creación de `SqlAlchemyCompanyRepository` (8 tests de integración).
+- **Subfase 6.2:** Implementación completa de `SqlAlchemyExpeditionRepository` con sus 7 métodos de contrato (`save`, `get_by_id`, `find_by_reference`, `list_pending_vehicle`, `next_internal_id`, `find_by_internal_id`, `find_duplicate_cargo`).
+- **Subfase 6.3.1:** Cierre integral de brechas de aislamiento multiempresa y concurrencia transaccional:
+  - Definición del Value Object de dominio `CompanyContext` y excepción `UnauthorizedCompanyContextException`.
+  - Blindaje multiempresa en todos los casos de uso (`AssignVehicle`, `EmitDeCA`, `SendDeCAEmail`, `ValidateExpedition`, `ImportDocumentsBatch`).
+  - Blindaje estricto contra mutaciones y reasignaciones cruzadas de empresa en `save()` (`CompanyMismatchException`).
+  - Implementación de `save_with_id_retry()` con política discriminante `is_internal_id_collision` (descarta categóricamente errores de clave foránea o nulidad para no generar bucles infinitos de reintento).
+- **Suite de pruebas completa:** **251 tests superados**, 0 fallos, 1 advertencia externa.
+- La API de FastAPI continúa operando exclusivamente sobre repositorios en memoria (`InMemory*Repository`).
 - La base de datos persistente `instance/deca.sqlite3` permanece intacta sin tablas ni migraciones aplicadas.
 
 ### Estado Actual del Working Tree
 - **Rama:** `master`
-- **Archivos modificados no commiteados (`M`):**
-  - `MASTER_CONTEXT.md` (incorporada sección 56 sobre estrategia de automatización, IA, agentes y gobernanza)
-  - `PROJECT_STATE.md` (actualizado a Fase 6 con Subfase 6.1 completada)
-  - `src/application/ports/company_repository.py` (método abstracto `save` incorporado)
-  - `src/infrastructure/repositories/__init__.py` (exportación de `SqlAlchemyCompanyRepository`)
+- **Archivos modificados pendientes de commit (`M`):**
+  - `MASTER_CONTEXT.md` (incorporadas sección 56 sobre IA/automatización y sección 57 sobre estrategia SaaS B2B)
+  - `PROJECT_STATE.md` (actualizado a Fase 6 con Subfases 6.1 y 6.2 completadas)
+  - `src/infrastructure/repositories/__init__.py` (exportación de adaptadores SQLAlchemy)
 - **Archivos nuevos no rastreados (`??`):**
-  - `src/infrastructure/repositories/sqlalchemy_company_repository.py` (adaptador relacional de empresas)
-  - `tests/integration/test_company_repository_sqlalchemy.py` (suite de 8 pruebas de integración)
+  - `src/infrastructure/repositories/sqlalchemy_expedition_repository.py` (adaptador relacional de expediciones)
+  - `tests/integration/test_expedition_repository_sqlalchemy.py` (suite de 12 pruebas de integración)
 - **Estado Remoto:**
-  - `git ls-remote https://github.com/johannmartlo/DECA-LIGHT.git` verificado no destructivamente: repositorio virgen sin commits.
-  - El push a GitHub permanece estrictamente bloqueado a la espera de la orden explícita del usuario: `"AUTORIZO PUSH"`.
+  - `origin/master` sincronizado en commit `873ef91372d184e8fce22f7e8bf431434fea6ac4`.
+  - No se realizan commits ni push sin autorización explícita.
 
 ---
 
@@ -75,8 +78,15 @@ Para evitar asunciones infundadas y discrepancias entre sesiones, cada component
    - Puerto `CompanyRepositoryPort` unificado con `@abstractmethod def save(company: Company) -> Company`.
    - Implementado `SqlAlchemyCompanyRepository` con inyección de sesión SQLAlchemy, mapeo bidireccional puro (`_to_orm`, `_to_domain`), soporte completo para Value Object `NIF` (`valor`), alias documentales en JSON y gestión transaccional desacoplada basada en `session.flush()`.
    - Creada suite de 8 tests de integración (`tests/integration/test_company_repository_sqlalchemy.py`) sobre SQLite temporal con `PRAGMA foreign_keys=ON;`.
-9. **Suite Completa de Pruebas Automatizadas:**
-   - Ejecución de `pytest -q`: **208 tests pasados**, 0 fallos, 1 advertencia de deprecación externa. Verificado en tiempo real.
+10. **Adaptador de Persistencia de Expediciones (`SqlAlchemyExpeditionRepository` — Subfase 6.2):**
+   - Implementado `SqlAlchemyExpeditionRepository` en `src/infrastructure/repositories/sqlalchemy_expedition_repository.py`.
+   - Implementa los 7 métodos del contrato `ExpeditionRepositoryPort`: `save`, `get_by_id`, `find_by_reference`, `list_pending_vehicle`, `next_internal_id`, `find_by_internal_id` y `find_duplicate_cargo`.
+   - Mapeo bidireccional estricto entre `Expedition` y `ExpeditionORM`, preservando todos los Value Objects (`NIF`, `Matricula`, `Weight`, `VehicleType`, `ExpeditionStatus`).
+   - Gestión transaccional desacoplada mediante `session.flush()` en `save()`, delegando la frontera transaccional en el caso de uso y sin ocultar `IntegrityError`.
+   - Generación atómica y segura de `internal_id` (`TD-YYYY-NNNNN`) respaldada por la restricción física `UNIQUE` en base de datos (`uq_expeditions_internal_id`) y soporte para `SELECT FOR UPDATE` en PostgreSQL.
+   - Creada suite de 12 tests de integración dedicados en `tests/integration/test_expedition_repository_sqlalchemy.py` sobre SQLite temporal con `PRAGMA foreign_keys=ON;`.
+11. **Suite Completa de Pruebas Automatizadas:**
+   - Ejecución de `pytest -q`: **220 tests pasados**, 0 fallos, 1 advertencia de deprecación externa. Verificado en tiempo real.
 
 ### 2.2 [PENDIENTE DE VERIFICACIÓN / HISTÓRICO NO CONTRASTADO EN ESTA SESIÓN]
 1. **Adaptador Transaccional de Microsoft Graph API v1.0:**
@@ -94,32 +104,35 @@ Para evitar asunciones infundadas y discrepancias entre sesiones, cada component
 
 - **Herramienta:** `pytest` 8.x sobre entorno virtual Python 3.12.10 (`.venv`).
 - **Comando:** `.venv\Scripts\pytest -q`
-- **Resultado:** **208 pasados, 0 fallos, 1 advertencia** (tiempo de ejecución: ~7.1 s).
+- **Resultado:** **251 pasados, 0 fallos, 1 advertencia** (tiempo de ejecución: ~8.5 s).
 - **Desglose de la Suite:**
   - **191 tests de línea base:**
     - Dominio: entidades, value objects (`Matricula`, `NIF`, `DeCAToken`), validaciones legales FOM/2861/2012, estados de expedición.
     - Aplicación: casos de uso (`ImportDocument`, `AssignVehicle`, `GenerateDeCA`, `DeliverEmail`), deduplicación y orquestación.
     - Infraestructura: parsers de PDF (`HispatecPdfImporter`, `CmrPdfImporter`), renderizador vectorial ReportLab, generador QR con Segno, almacenamiento en disco local y stubs de correo.
     - Presentación: API REST FastAPI con endpoints operativos (`/expediciones`, `/decas`, `/documents`, `/d/{token}`).
+  - **13 tests unitarios de `CompanyContext` (`tests/unit/test_company_context.py`):**
+    - Validación canónica de formato (`^[A-Z0-9_]{2,40}$`), saneamiento de espacios en blanco, rechazo de nulos/vacíos y validación de `is_verified` (`UnauthorizedCompanyContextException`).
+  - **4 tests unitarios de aislamiento multiempresa en Casos de Uso (`tests/unit/test_use_case_multi_tenant.py`):**
+    - `AssignVehicleToExpeditionUseCase`: rechazo de acceso cruzado entre empresas y rechazo de contexto no verificado.
+    - `ValidateExpeditionUseCase`: validación protegida por tenant.
+    - `EmitDeCAUseCase`: rechazo de emisión para expediciones de otra empresa.
+    - `SendDeCAEmailUseCase`: rechazo de envío transaccional cruzado.
+  - **5 tests unitarios de repositorio en memoria (`tests/unit/test_in_memory_expedition_repository.py`):**
+    - Aislamiento estricto por tenant en `get_by_id`, `find_by_reference`, `save` y `find_by_internal_id`.
+    - Detección de mutaciones en memoria mediante copia profunda y rechazo de reasignación cruzada de empresa (`CompanyMismatchException`).
   - **9 tests de integración ORM generales (`tests/integration/test_persistence_orm.py`) con `PRAGMA foreign_keys=ON;`:**
-    1. `test_alembic_upgrade_downgrade_cycle`: Ciclo DDL head/base.
-    2. `test_multi_session_persistence`: Persistencia entre sesiones independientes.
-    3. `test_json_snapshot_integrity`: Integridad del snapshot JSON y hash SHA-256.
-    4. `test_multi_company_albaran_reference_sharing`: Albaranes compartidos entre empresas.
-    5. `test_internal_id_uniqueness_enforced`: Unicidad de `internal_id` en BD.
-    6. `test_deca_version_unique_constraint`: Unicidad de número de versión por DeCA.
-    7. `test_deca_delete_restricted_when_versions_exist`: Protección H-01 en DeCA (`RESTRICT`).
-    8. `test_removing_version_from_relationship_does_not_delete_version`: Preservación sin orphan deletion.
-    9. `test_email_delivery_blocks_deletion_of_expedition_and_deca`: Protección H-01 en entregas (`RESTRICT`).
+    - Ciclo Alembic, sesiones independientes, integridad JSON, albaranes compartidos, clave única de identificador interno, protecciones `RESTRICT`.
   - **8 tests de integración de adaptador de empresas (`tests/integration/test_company_repository_sqlalchemy.py`) con `PRAGMA foreign_keys=ON;`:**
-    1. `test_save_and_get_by_id`: Guardado y recuperación por identificador de empresa.
-    2. `test_get_by_id_non_existent`: Manejo de empresa inexistente retornando `None`.
-    3. `test_update_existing_company`: Actualización de empresa existente y persistencia de cambios.
-    4. `test_list_all_and_list_active`: Listado global y filtrado exclusivo de activas.
-    5. `test_mapping_optional_fields_and_none_tax_id`: Mapeo de campos opcionales y NIF nulo.
-    6. `test_persistence_across_independent_sessions`: Persistencia real entre sesiones cerradas.
-    7. `test_duplicate_primary_key_direct_orm_integrity_error`: Rechazo de clave primaria duplicada con `IntegrityError`.
-    8. `test_transactional_rollback_clears_uncommitted_state`: Reversión limpia con `session.rollback()`.
+    - Operaciones CRUD completas sobre `CompanyORM`, mapeo de Value Objects `NIF`, transacciones independientes y reversión.
+  - **21 tests de integración de adaptador de expediciones (`tests/integration/test_expedition_repository_sqlalchemy.py`) con `PRAGMA foreign_keys=ON;`:**
+    - Guardado y recuperación completa de todos los campos y Value Objects.
+    - Aislamiento multiempresa en `get_by_id`, `find_by_reference`, `list_pending_vehicle`, `find_by_internal_id`.
+    - Rechazo de mutaciones y reasignaciones cruzadas en `save()` (`CompanyMismatchException`).
+    - Detección de colisiones en concurrencia real sobre dos sesiones independientes (`IntegrityError`).
+    - Validación de `save_with_id_retry()` ante colisión de `internal_id`: recuperación automática con reintento.
+    - Rechazo inmediato sin reintentos espurios ante errores de clave foránea (`ForeignKeyViolation`).
+    - Propagación de excepción al superar el límite de reintentos (`max_retries`).
 - **Advertencias:** 1 advertencia de biblioteca externa (`StarletteDeprecationWarning: Using 'httpx' with 'starlette.testclient' is deprecated; install 'httpx2' instead` en `fastapi.testclient`). No afecta a la ejecución ni al código del proyecto.
 
 ---
@@ -180,28 +193,40 @@ Durante las auditorías de las Fases 2, 4 y 5 se han identificado las siguientes
    - Agentes de IA limitados con permisos mínimos, sin capacidad para saltarse validaciones ni emitir documentos incompletos.
    - n8n como posibilidad de orquestación externa sin sustituir a FastAPI ni a PostgreSQL.
    - Gobernanza estricta: diagnóstico previo, no inventar clases/estados, pruebas continuas y autorización expresa para migraciones, commits y pushes.
+9. **Estrategia de Producto: Mentalidad de Producto Comercializable como SaaS B2B (Decisión del 13 de octubre de 2026; Sección 57 de `MASTER_CONTEXT.md`):**
+   - **Decisión comercial:** Tomada el 13 de octubre de 2026 para desarrollar DECA Light con mentalidad de producto comercializable como SaaS B2B.
+   - **Objetivo:** Desarrollar un único producto de software comercializable, reutilizable tanto por la empresa inicial como por futuros clientes.
+   - **Unicidad de código:** No se mantendrán versiones paralelas ni se duplicará la lógica de negocio para comercializarlo; las diferencias entre clientes se resolverán mediante configuración y adaptadores cuando corresponda.
+   - **Núcleo agnóstico y desacoplamiento:** El núcleo de dominio permanece independiente de clientes concretos; las integraciones con ERP se mantendrán desacopladas del núcleo.
+   - **Aislamiento y pilares técnicos:** La arquitectura deberá permitir aislamiento estricto de datos por empresa, usuarios y permisos. Se priorizan la persistencia fiable, la integridad transaccional, la seguridad, la auditoría, la trazabilidad y las pruebas.
+   - **Equilibrio arquitectónico:** Se debe evitar tanto el acoplamiento a una empresa concreta como la complejidad SaaS prematura; las nuevas funcionalidades comerciales se incorporarán mediante fases explícitas.
+   - **Validación y salvaguardas legales:** La demanda de mercado y la disposición a pagar deberán validarse antes de invertir en una plataforma comercial completa; la titularidad del código y las obligaciones de confidencialidad deberán revisarse antes de comercializar el producto.
+   - **Estado técnico vigente y límites:**
+     - Estado técnico: Subfase 6.1 (empresas) y Subfase 6.2 (expediciones) completadas y verificadas empíricamente; Subfase 6.3 (DeCA y envíos) pendiente.
+     - Último commit publicado conocido en GitHub: `873ef91372d184e8fce22f7e8bf431434fea6ac4`.
+     - La API sigue utilizando repositorios en memoria.
+     - **Aclaración expresa de límites:** Esta decisión estratégica NO significa que el producto ya sea multiempresa, que esté preparado para producción ni que exista demanda comercial validada. No se ha implementado todavía la arquitectura SaaS multiempresa completa.
 
 ---
 
 ## 7. ACCIONES TODAVÍA NO REALIZADAS
 
-1. **Subfase 6.2 — Adaptador de Expediciones:** Diagnóstico e implementación de `SqlAlchemyExpeditionRepository`.
-2. **Subfase 6.3 — Adaptadores de DeCA y Envíos:** Crear `SqlAlchemyDeCARepository` y `SqlAlchemyEmailDeliveryRepository`.
-3. **Inyección de Sesión de Base de Datos en FastAPI:** Actualizar `dependencies.py` para conmutar de forma configurable hacia los adaptadores SQLAlchemy cuando se autorice.
-4. **Aplicación de Migración en Base Persistente:** Ejecutar `alembic upgrade head` sobre `instance/deca.sqlite3` cuando se autorice expresamente.
-5. **Desarrollo de la Interfaz Web:** Construir la interfaz de usuario siguiendo las directrices de `DESIGN_SYSTEM.md`.
-6. **Integración con Correo Corporativo:** Evaluar proveedor real, destinatarios, revisión previa, trazabilidad, reintentos e idempotencia.
-7. **Almacenamiento Persistente Definitivo, Enlaces y QR:** Configurar el backend custodial de almacenamiento y el endpoint de inspección.
-8. **Sincronización Inicial con GitHub:** Configurar `origin` y ejecutar `git push -u origin master` tras recibir autorización explícita.
-9. **Evaluación de IA y Agentes:** Estudio futuro de modelos especializados y n8n cuando aporten valor demostrado.
+1. **Subfase 6.3 — Adaptadores de DeCA y Envíos:** Crear `SqlAlchemyDeCARepository` y `SqlAlchemyEmailDeliveryRepository`.
+2. **Inyección de Sesión de Base de Datos en FastAPI:** Actualizar `dependencies.py` para conmutar de forma configurable hacia los adaptadores SQLAlchemy cuando se autorice.
+3. **Aplicación de Migración en Base Persistente:** Ejecutar `alembic upgrade head` sobre `instance/deca.sqlite3` cuando se autorice expresamente.
+4. **Desarrollo de la Interfaz Web:** Construir la interfaz de usuario siguiendo las directrices de `DESIGN_SYSTEM.md`.
+5. **Integración con Correo Corporativo:** Evaluar proveedor real, destinatarios, revisión previa, trazabilidad, reintentos e idempotencia.
+6. **Almacenamiento Persistente Definitivo, Enlaces y QR:** Configurar el backend custodial de almacenamiento y el endpoint de inspección.
+7. **Sincronización con GitHub:** Preparar commit local y ejecutar `git push -u origin master` cuando se autorice expresamente.
+8. **Evaluación de IA y Agentes:** Estudio futuro de modelos especializados y n8n cuando aporten valor demostrado.
 
 ---
 
 ## 8. SIGUIENTE PASO RECOMENDADO
 
-**Subfase 6.2: Diagnóstico e Implementación del Adaptador de Expediciones (`SqlAlchemyExpeditionRepository`):**
-1. Inspeccionar `ExpeditionRepositoryPort` y los métodos requeridos (`save`, `get_by_id`, `find_by_reference`, `list_pending_vehicle`, `next_internal_id`, `find_by_internal_id`, `find_duplicate_cargo`).
-2. Diseñar el mapeo bidireccional entre la entidad `Expedition` (y sus Value Objects: `Matricula`, `NIF`, `Weight`, `ExpeditionStatus`, `VehicleType`) y `ExpeditionORM`.
+**Subfase 6.3: Diagnóstico e Implementación de Adaptadores de DeCA y Envíos (`SqlAlchemyDeCARepository` y `SqlAlchemyEmailDeliveryRepository`):**
+1. Inspeccionar `DeCARepositoryPort` y `EmailDeliveryRepositoryPort` junto con sus modelos ORM (`DeCAORM`, `DeCAVersionORM`, `EmailDeliveryORM`).
+2. Diseñar el mapeo bidireccional preservando snapshots JSON, hash SHA-256 y relaciones con DeCAVersion.
 3. Crear suite de pruebas de integración con SQLite temporal y `PRAGMA foreign_keys=ON;`.
 4. Mantener la API y casos de uso en memoria sin alteraciones.
 
@@ -305,3 +330,193 @@ Se ha mitigado el riesgo de destrucción en cascada del historial documental leg
    - FastAPI (`dependencies.py`) sigue proveyendo `InMemoryCompanyRepository`.
    - La base de datos persistente `instance/deca.sqlite3` no fue tocada ni migrada.
    - No se realizó ningún commit ni push a Git.
+
+---
+
+## 12. IMPLEMENTACIÓN DE LA SUBFASE 6.2: ADAPTADOR DE EXPEDICIONES (SQLAlchemy)
+
+**Fecha de ejecución:** 13 de octubre de 2026
+**Estado:** Resuelto y verificado empíricamente con 220 tests pasando al 100%.
+
+### 12.1 Alcance y Decisiones de Implementación
+1. **Adaptador `SqlAlchemyExpeditionRepository`:**
+   - Implementado en `src/infrastructure/repositories/sqlalchemy_expedition_repository.py`.
+   - Implementa íntegramente `ExpeditionRepositoryPort` con los métodos: `save`, `get_by_id`, `find_by_reference`, `list_pending_vehicle`, `next_internal_id`, `find_by_internal_id` y `find_duplicate_cargo`.
+   - Inyección de sesión SQLAlchemy (`Session`).
+   - Mapeo bidireccional puro `_to_orm` y `_to_domain`:
+     - Preservación de Value Objects: `NIF` (`valor`), `Matricula` (`valor`), `Weight` (`kg`), `VehicleType` (StrEnum), `ExpeditionStatus` (StrEnum).
+     - Mapeo de `company_id`: vacío `""` en dominio se traduce a `None` en ORM para respetar la restricción `ForeignKey("companies.company_id", ondelete="RESTRICT")`, y `None` relacional se restituye a `""` en dominio.
+     - Conservación exacta del número de albarán/referencia (`reference`).
+     - Metadatos de extracción serializados como `dict` hacia `JSON`.
+2. **Estrategia de Concurrencia para `internal_id` (`TD-YYYY-NNNNN`):**
+   - Sin bloqueos en memoria de tipo `threading.Lock()` (ineficaces en multiproceso).
+   - Consulta el máximo identificador del ejercicio fiscal (`ORDER BY internal_id DESC LIMIT 20`) analizando el sufijo numérico para calcular el siguiente correlativo secuencial.
+   - En PostgreSQL aplica `with_for_update()` para bloqueo de fila.
+   - La seguridad física ante concurrencia está garantizada por la restricción `UNIQUE` (`uq_expeditions_internal_id`) en base de datos. Ante colisión concurrente, la base de datos rechaza la inserción elevando `IntegrityError` en `session.flush()`, permitiendo que el caso de uso invocador reintente de forma segura sin ocultar errores.
+3. **Estrategia Transaccional:**
+   - Operaciones de escritura ejecutan exclusivamente `session.flush()`.
+   - Prohibido terminantemente ejecutar `commit()` o `rollback()` dentro del repositorio; la frontera transaccional permanece en el caso de uso (Capa de Aplicación).
+4. **Pruebas de Integración (`test_expedition_repository_sqlalchemy.py`):**
+   - 12 tests automatizados ejecutados sobre SQLite temporal con `PRAGMA foreign_keys=ON;` y semillero de empresas padre:
+     1. Guardado y recuperación completa de todos los campos y Value Objects.
+     2. Recuperación por UUID inexistente retorna `None`.
+     3. Actualización de datos operativos (estado, vehículo, transportista).
+     4. Búsqueda por referencia con aislamiento estricto por empresa (multiempresa).
+     5. Búsqueda por identificador visible `TD-YYYY-NNNNN`.
+     6. Listado de pendientes de matrícula con y sin filtro de empresa.
+     7. Generación consecutiva segura por ejercicio fiscal.
+     8. Detección de duplicados de carga con tolerancia de peso (±0.01 kg).
+     9. Rechazo por empresa inexistente con `IntegrityError` (`PRAGMA foreign_keys=ON;`).
+     10. Rechazo por duplicidad de `internal_id` con `IntegrityError`.
+     11. Reversión transaccional limpia controlada por el invocador con `session.rollback()`.
+     12. Mapeo correcto de campos opcionales y nulos.
+5. **Garantía de Aislamiento:**
+   - FastAPI (`dependencies.py`) sigue proveyendo repositorios en memoria (`InMemory*Repository`).
+   - La base de datos persistente `instance/deca.sqlite3` no fue tocada ni migrada.
+   - No se realizó ningún commit ni push a Git.
+
+---
+
+## 13. IMPLEMENTACIÓN DE LA SUBFASE 6.3.1: BLINDAJE MULTIEMPRESA Y POLÍTICA DE CONCURRENCIA
+
+**Fecha de ejecución:** 13 de octubre de 2026  
+**Estado:** Resuelto y verificado empíricamente con **251 tests pasando al 100%**.
+
+### 13.1 Brechas Identificadas y Solución Técnica Aplicada
+Tras la auditoría independiente de persistencia, se detectaron brechas residuales en el control de acceso multi-tenant y en la gestión de reintentos por colisión de identificadores. Se han implementado las siguientes correcciones:
+
+1. **Contrato de Contexto Empresarial Autorizado (`CompanyContext`):**
+   - Implementado como Value Object inmutable en `src/domain/value_objects.py`.
+   - Excepción formal `UnauthorizedCompanyContextException` en `src/domain/exceptions.py`.
+   - Valida el formato canónico mediante expresión regular `^[A-Z0-9_]{2,40}$`, rechaza identificadores nulos o vacíos, normaliza espacios en blanco y exige verificación de autoridad (`is_verified=True`).
+   - Impide que identificadores arbitrarios o cabeceras HTTP sin verificar penetren en la capa de dominio.
+
+2. **Blindaje de los Casos de Uso (Anti-IDOR Multi-Tenant):**
+   - `AssignVehicleToExpeditionUseCase`: valida `CompanyContext`, exige y pasa `company_id` a `expedition_repo.get_by_id(..., company_id=...)` y a `expedition_repo.save(..., company_id=...)`.
+   - `EmitDeCAUseCase`: valida `CompanyContext`, recupera la expedición acotada al tenant y persiste la transición de estado preservando el tenant.
+   - `SendDeCAEmailUseCase`: valida `CompanyContext`, restringe la expedición y el envío transaccional al tenant autorizado.
+   - `ValidateExpeditionUseCase`: soporta parámetro `company_id`, impidiendo la inspección de expediciones pertenecientes a otras empresas.
+   - `ImportDocumentsBatchUseCase`: persiste expediciones mediante `save_with_id_retry(..., company_id=detected_company_id)`.
+
+3. **Invariantes contra Mutaciones y Reasignaciones Cruzadas en `save()`:**
+   - Tanto `SqlAlchemyExpeditionRepository` como `InMemoryExpeditionRepository` imponen validaciones estrictas:
+     - Si una expedición persistida tiene empresa asignada, está terminantemente prohibido alterar o eliminar su asociación empresarial (`CompanyMismatchException`).
+     - Si el contexto `company_id` del invocador no coincide con la empresa de la entidad, la operación se rechaza inmediatamente.
+   - En `InMemoryExpeditionRepository` se implementó copia defensiva (`copy.copy`) en el almacenamiento interno para evitar que mutaciones de aliasing por referencia en memoria eludan la comparación de estado previo.
+
+4. **Política Bounded y Selectiva de Reintentos (`save_with_id_retry`):**
+   - Declarado en `ExpeditionRepositoryPort` e implementado con control transaccional en `SqlAlchemyExpeditionRepository`.
+   - Servicio de política `is_internal_id_collision(exc)` en `src/domain/services/internal_id_collision_policy.py`:
+     - Discrimina específicamente la restricción `uq_expeditions_internal_id` (incluyendo análisis de `pgcode == '23505'` y metadatos diagnósticos en PostgreSQL).
+     - Descarta y propaga inmediatamente violaciones de claves foráneas (`FOREIGN KEY`, ej. empresa inexistente), restricciones de nulidad (`NOT NULL`) o restricciones `CHECK`. Esto previene de forma absoluta bucles infinitos de reintento sobre datos corruptos.
+     - Ante colisión real de `internal_id`: ejecuta `session.rollback()`, recalcula atómicamente `next_internal_id()` y reintenta la persistencia hasta un umbral acotado (`max_retries=3`).
+
+### 13.2 Desglose de Pruebas y Verificación
+- **13 pruebas unitarias de `CompanyContext`** (`tests/unit/test_company_context.py`).
+- **4 pruebas unitarias de aislamiento en casos de uso** (`tests/unit/test_use_case_multi_tenant.py`).
+- **5 pruebas unitarias de repositorio en memoria** (`tests/unit/test_in_memory_expedition_repository.py`).
+- **21 pruebas de integración de SQLAlchemy** (`tests/integration/test_expedition_repository_sqlalchemy.py`), incorporando:
+  - `test_save_with_id_retry_success_after_collision`: simulación de dos workers concurrentes donde el reintento automático resuelve la colisión y genera el siguiente correlativo secuencial.
+  - `test_save_with_id_retry_rejects_foreign_key_violation_without_retry`: validación de que los errores de FK no se reintentan y se elevan de inmediato.
+  - `test_save_with_id_retry_exceeds_max_retries`: propagación limpia de `IntegrityError` al agotar los intentos permitidos.
+- **Suite completa:** **251 pruebas superadas al 100%**, 0 fallos.
+
+### 13.3 Garantías de Aislamiento del Entorno
+- La capa de presentación (`src/presentation/api/dependencies.py`) continúa proveyendo repositorios en memoria (`InMemory*Repository`). SQLAlchemy no se ha conectado a FastAPI.
+- La base de datos persistente `instance/deca.sqlite3` permanece intacta (12.288 bytes, sin tablas de negocio aplicadas).
+- No se han realizado commits ni operaciones de push en Git.
+
+---
+
+## 14. IMPLEMENTACIÓN DE LA SUBFASE 6.3.4: AUTENTICACIÓN M2M, AISLAMIENTO MULTIEMPRESA Y NUMERACIÓN INDEPENDIENTE
+
+**Fecha de ejecución:** 13 de octubre de 2026  
+**Estado:** Resuelto y verificado empíricamente con **268 pruebas superadas al 100%** (y 2 skips condicionales de PostgreSQL).
+
+### 14.1 Alcance y Decisiones Implementadas
+
+1. **Decisión A — Autenticación M2M (API Keys Seguras):**
+   - **Contratos y Adaptadores:**
+     - `TenantAuthenticatorPort` (`src/application/ports/tenant_authenticator_port.py`) define los métodos de autenticación de credenciales y resolución de la empresa activa.
+     - `InMemoryTenantAuthenticator` (`src/infrastructure/auth/api_key_authenticator.py`) implementa la gestión de identidades y API keys.
+     - Almacenamiento seguro mediante hashes criptográficos SHA-256 (`hash_api_key`) y validación en tiempo constante (`secrets.compare_digest`) para prevenir ataques de temporización (*timing attacks*).
+   - **Esquema de Autorización en FastAPI:**
+     - Dependencia `get_authorized_company_context` (`src/presentation/api/dependencies.py`) que inspecciona el esquema `Bearer` vía `HTTPBearer(auto_error=False)`.
+     - Petición sin credencial o con API key inválida -> `401 Unauthorized` con cabecera `WWW-Authenticate: Bearer`.
+     - Credencial con permisos sobre múltiples empresas sin cabecera `X-Company-Id` para desambiguar -> `400 Bad Request`.
+     - Credencial intentando operar sobre una empresa no autorizada en su identidad -> `403 Forbidden`.
+     - Credencial válida con empresa resuelta -> Retorna instancia de Value Object `CompanyContext(company_id=..., is_verified=True)`.
+   - **Blindaje Anti-IDOR en Endpoints Protegidos:**
+     - Rutas protegidas (`expedition_routes.py`, `deca_routes.py`, `import_routes.py`) inyectan `company_context` y acotan todas las consultas y mutaciones al `company_context.company_id`.
+     - Respuestas uniformes `404 Not Found` ante recursos inexistentes o pertenecientes a otros tenants, impidiendo la deducción o fuga de información sobre la existencia de expediciones de terceros.
+   - **Inspección Pública de Carretera:**
+     - La ruta de acceso público `/d/{token}` se mantiene 100% abierta y no autenticada para permitir la visualización oficial en ruta del documento DeCA mediante tokens de alta entropía.
+
+2. **Decisión B — Numeración Independiente por Empresa:**
+   - **Secuenciación Particionada:**
+     - El identificador visible de expedición (`TD-YYYY-NNNNN`) es independiente por empresa (`company_id`) y ejercicio fiscal (`fiscal_year`). Dos empresas distintas pueden tener simultáneamente la expedición `00001` de 2026.
+     - Soporte para prefijo configurable por empresa (por defecto `"TD"`).
+     - `InMemoryExpeditionSequenceGenerator` y `SqlAlchemyExpeditionRepository.next_internal_id` actualizados para calcular el correlativo filtrando por empresa y prefijo.
+   - **Restricción Física Compuesta en Base de Datos:**
+     - `ExpeditionORM` actualizado con restricción única compuesta `UNIQUE(company_id, internal_id)` nombrada `uq_expeditions_company_internal_id`.
+     - Política de colisiones `is_internal_id_collision` adaptada para detectar tanto `uq_expeditions_company_internal_id` como los mensajes diagnósticos relacionales correspondientes.
+     - Creada la migración Alembic `c3f89e41b212_unique_company_internal_id.py` para reflejar el cambio de restricción en PostgreSQL/SQLite.
+
+3. **Decisión C — Persistencia y Aislamiento del Entorno:**
+   - **Desconexión Intacta:** La API de FastAPI (`dependencies.py`) continúa operando en memoria; los adaptadores SQLAlchemy no se conectaron a la API.
+   - **Base de Datos Local Protegida:** El archivo `instance/deca.sqlite3` no fue modificado, migrado ni alterado en modo alguno (12.288 bytes intactos).
+   - **Suite de Concurrencia PostgreSQL:** Creada en `tests/integration/test_postgres_concurrency.py` con marcador `@pytest.mark.postgres` y omisión condicional controlada (`pytest.skip`) en ausencia de la variable de entorno `TEST_POSTGRES_URL`.
+   - **Gobernanza Git:** No se realizó ningún commit ni push.
+
+### 14.2 Desglose de Pruebas y Verificación
+
+- **Suite completa:** **268 pruebas pasadas, 2 omitidas (PostgreSQL), 0 fallos, 1 advertencia en 13.52s**.
+- **Nuevas pruebas unitarias e integración añadidas en la subfase:**
+  - `tests/unit/test_api_key_auth.py`: 11 pruebas (autenticación M2M, comparación timing-safe, errores 401/403/400 y anti-IDOR).
+  - `tests/unit/test_tenant_numbering.py`: 4 pruebas (generador en memoria por tenant, prefijos, unicidad compuesta en memoria y con base de datos SQLite real).
+  - `tests/integration/test_postgres_concurrency.py`: 2 pruebas con skip condicional si no se define `TEST_POSTGRES_URL`.
+- **Adaptación y validación de suites existentes:**
+  - `test_expedition_api.py`, `test_deca_api.py`, `test_email_api.py`, `test_batch_import.py`, `test_public_endpoint.py`, `test_persistence_orm.py`, `test_company_and_multi_tenant.py`, `test_deca_engine_and_pdf.py`.
+
+---
+
+## 15. IMPLEMENTACIÓN DE LA SUBFASE 6.3.5: CORRECCIÓN DE AISLAMIENTO EN IMPORTACIÓN Y ROBUSTEZ TRANSACCIONAL
+
+**Fecha de ejecución:** 13 de octubre de 2026  
+**Estado:** Resuelto y verificado empíricamente con **273 pruebas superadas al 100%** (y 2 skips condicionales de PostgreSQL).
+
+### 15.1 Alcance y Correcciones Implementadas
+
+1. **Aislamiento Multiempresa en la Importación Documental Masiva:**
+   - **Paso de Contexto en API:** `import_routes.py` inyecta `company_context` autenticado y pasa explícitamente `company_id=company_context.company_id` a `use_case.execute()`.
+   - **Rechazo Estricto de Conflictos de Tenant:** En `ImportDocumentsBatchUseCase._process_single_file()`, si `CompanyDetector` detecta una empresa registrada en la plataforma diferente a la empresa autorizada (`detected_company_id != authorized_company_id`), el documento es **RECHAZADO INMEDIATAMENTE** con `status="REJECTED"`. Se descarta el hash de procesamiento, no se guarda el archivo físico en almacenamiento, no se crea entidad `Expedition` ni se inserta en base de datos.
+   - **Preservación de Actores Operativos:** Los participantes reales del transporte (cargador, transportista, consignatario) extraídos del texto del documento se preservan íntegramente en los campos de dominio (`shipper_name`, `carrier_name_raw`, metadatos), mientras que la titularidad tenant queda gobernada por `authorized_company_id`.
+   - **Tratamiento de Cargadores No Reconocidos:** Si el documento no coincide con ninguna empresa registrada en el sistema (`detected_company_id is None`), la expedición se atribuye al tenant autenticado (`company_id = authorized_company_id`), pero se clasifica como `status="NEEDS_REVIEW"` (`PENDIENTE_REVISION`) con `fields_needing_review.append("empresa_emisora")`. Se evitan registros huérfanos o con `company_id` nulo/falso.
+   - **DTO Actualizado:** `BatchImportResultDTO` incorpora `rejected_count: int = 0` para consolidar el conteo de documentos rechazados por conflicto de tenant.
+
+2. **Robustez Transaccional con Savepoints en `SqlAlchemyExpeditionRepository.save_with_id_retry`:**
+   - Se eliminó la invocación a `self._session.rollback()`, que destruía la transacción externa del invocador y purgaba entidades agregadas/modificadas previamente en la misma sesión.
+   - Se implementó aislamiento mediante savepoint relacional utilizando `with self._session.begin_nested(): return self.save(...)`.
+   - Ante colisiones de `internal_id`, el context manager revierte exclusivamente el savepoint anidado, preservando intacta la sesión y cualquier objeto flusheado previamente en la unidad de trabajo. El reintento calcula el siguiente correlativo y vuelve a intentar dentro de un nuevo savepoint.
+
+3. **Resolución Arquitectónica para la Nulabilidad de `company_id` en `ExpeditionORM`:**
+   - En una arquitectura SaaS B2B, toda expedición pertenece obligatoriamente a una empresa cliente (`company_id`). Los documentos sin procesar corresponden a la entidad técnica `Document` (archivos fuente), no a expediciones de transporte.
+   - La nulabilidad de la columna en `ExpeditionORM` se mantiene temporalmente a nivel relacional exclusivamente para retrocompatibilidad con esquemas históricos existentes, pero las fronteras de Dominio y Casos de Uso garantizan que en tiempo de ejecución ninguna expedición se guarde sin `company_id`.
+   - Una vez autorizada la fase de migraciones persistentes sobre PostgreSQL, la columna se promoverá formalmente a `NOT NULL` con la restricción `UNIQUE (company_id, internal_id)`.
+
+4. **Garantías de Aislamiento del Entorno:**
+   - La API de FastAPI (`dependencies.py`) continúa utilizando los adaptadores en memoria (`InMemory*Repository`); SQLAlchemy no se conectó a FastAPI.
+   - La base de datos persistente `instance/deca.sqlite3` permanece intacta (12.288 bytes, sin modificaciones).
+   - No se ejecutaron migraciones, commits ni operaciones push en Git.
+
+### 15.2 Desglose de Pruebas y Verificación
+
+- **Suite completa:** **273 pruebas pasadas, 2 omitidas (PostgreSQL), 0 fallos, 1 advertencia en 11.36s**.
+- **Nuevas pruebas añadidas en la subfase (5 pruebas):**
+  - `test_batch_import_cross_tenant_pdf_rejected` (`tests/integration/test_batch_import.py`): verifica el rechazo inmediato de PDF perteneciente a otro tenant, con 0 persistencia y 0 escritura en almacenamiento.
+  - `test_batch_import_unrecognized_shipper_assigned_to_authorized_tenant_needing_review` (`tests/integration/test_batch_import.py`): verifica la asignación al tenant autenticado con estado `NEEDS_REVIEW` ante cargador no registrado.
+  - `test_batch_import_mix_valid_cross_tenant_and_unrecognized` (`tests/integration/test_batch_import.py`): verifica el comportamiento coordinado de un lote mixto de 3 documentos.
+  - `test_api_import_batch_cross_tenant_rejection` (`tests/integration/test_batch_import.py`): verifica el rechazo de tenant cruzado a través del endpoint HTTP de FastAPI.
+  - `test_save_with_id_retry_preserves_outer_transaction_state` (`tests/integration/test_expedition_repository_sqlalchemy.py`): verifica que el uso de savepoints preserva entidades flusheadas en la transacción externa ante reintentos por colisión.
+
+

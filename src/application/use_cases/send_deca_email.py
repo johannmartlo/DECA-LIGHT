@@ -25,7 +25,7 @@ from src.domain.entities.email_delivery import EmailDelivery
 from src.domain.enums import AuditAction, EmailDeliveryStatus, ExpeditionStatus
 from src.domain.exceptions import EntityNotFoundException
 from src.domain.services.clock import Clock
-from src.domain.value_objects import EmailAddress
+from src.domain.value_objects import CompanyContext, EmailAddress
 
 logger = logging.getLogger("deca_light.use_cases.send_deca_email")
 
@@ -63,6 +63,9 @@ class SendDeCAEmailUseCase:
 
     def execute(self, input_dto: SendDeCAEmailInputDTO) -> SendDeCAEmailResultDTO:
         """Ejecuta el flujo de envío de correo protegiendo concurrencia e invariantes."""
+        if input_dto.company_id:
+            CompanyContext.create(input_dto.company_id, actor=input_dto.actor)
+
         try:
             exp_uuid = (
                 uuid.UUID(str(input_dto.expedition_id))
@@ -76,7 +79,9 @@ class SendDeCAEmailUseCase:
 
         with self._lock:
             # 1. Recuperar expedición
-            expedition = self.expedition_repo.get_by_id(exp_uuid)
+            expedition = self.expedition_repo.get_by_id(
+                exp_uuid, company_id=input_dto.company_id
+            )
             if not expedition:
                 raise EntityNotFoundException(
                     f"Expedición con ID '{input_dto.expedition_id}' no encontrada."
@@ -433,7 +438,7 @@ class SendDeCAEmailUseCase:
                 # Transición a ENVIADA únicamente si el envío tiene éxito
                 if expedition.status != ExpeditionStatus.ENVIADA:
                     expedition.transition_to(ExpeditionStatus.ENVIADA)
-                    self.expedition_repo.save(expedition)
+                    self.expedition_repo.save(expedition, company_id=input_dto.company_id)
 
                 if self.audit_service:
                     self.audit_service.record(

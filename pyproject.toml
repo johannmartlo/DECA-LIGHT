@@ -42,6 +42,9 @@ minversion = "8.0"
 addopts = "-ra -q --strict-markers"
 testpaths = ["tests"]
 pythonpath = ["."]
+markers = [
+    "postgres: pruebas de integración y concurrencia contra PostgreSQL real",
+]
 
 [tool.ruff]
 target-version = "py312"

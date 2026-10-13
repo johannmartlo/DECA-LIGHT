@@ -716,6 +716,7 @@ def test_public_qr_cross_company_access(client: TestClient, test_settings: Setti
 # 17. Rechazo IDOR cross-company con X-Company-Id
 # ==============================================================================
 def test_cross_company_idor_rejection(client: TestClient) -> None:
+    from src.config.companies import TEST_API_KEY_ARABA, TEST_API_KEY_TOMATES
     from src.presentation.api.dependencies import get_expedition_repository
 
     exp_repo = get_expedition_repository()
@@ -729,29 +730,43 @@ def test_cross_company_idor_rejection(client: TestClient) -> None:
     )
     exp_repo.save(exp_araba)
 
-    # Intento de acceso indicando X-Company-Id: TOMATES_DE_AUTOR
-    res_get = client.get(
-        f"/api/v1/expeditions/{exp_araba.id}",
-        headers={"X-Company-Id": "TOMATES_DE_AUTOR"},
-    )
-    assert res_get.status_code == 403
-    assert "otra empresa" in res_get.json()["detail"]
+    # 1. Sin autenticación -> 401 Unauthorized
+    res_unauth = client.get(f"/api/v1/expeditions/{exp_araba.id}")
+    assert res_unauth.status_code == 401
+    assert "Bearer" in res_unauth.headers.get("www-authenticate", "")
 
-    # Intento de asignación de vehículo indicando X-Company-Id erróneo
+    # 2. Intento de acceso autenticado como TOMATES_DE_AUTOR -> 404 uniforme (Anti-IDOR sin fuga de información)
+    res_cross_get = client.get(
+        f"/api/v1/expeditions/{exp_araba.id}",
+        headers={"Authorization": f"Bearer {TEST_API_KEY_TOMATES}"},
+    )
+    assert res_cross_get.status_code == 404
+
+    # 3. Intento de suplantación indicando X-Company-Id de empresa no autorizada para la API key -> 403 Forbidden
+    res_spoof = client.get(
+        f"/api/v1/expeditions/{exp_araba.id}",
+        headers={
+            "Authorization": f"Bearer {TEST_API_KEY_TOMATES}",
+            "X-Company-Id": "CULTIVOS_ARABA",
+        },
+    )
+    assert res_spoof.status_code == 403
+
+    # 4. Intento de asignación de vehículo cross-tenant con token de otra empresa -> 404 uniforme
     res_patch = client.patch(
         f"/api/v1/expeditions/{exp_araba.id}/vehicle",
-        headers={"X-Company-Id": "TOMATES_DE_AUTOR"},
+        headers={"Authorization": f"Bearer {TEST_API_KEY_TOMATES}"},
         json={
             "vehicle_type": "RIGIDO",
             "tractor_registration": "1234BBB",
         },
     )
-    assert res_patch.status_code == 403
+    assert res_patch.status_code == 404
 
-    # Con la cabecera correcta de CULTIVOS_ARABA sí se permite
+    # 5. Con la credencial autorizada de CULTIVOS_ARABA -> 200 OK
     res_ok = client.get(
         f"/api/v1/expeditions/{exp_araba.id}",
-        headers={"X-Company-Id": "CULTIVOS_ARABA"},
+        headers={"Authorization": f"Bearer {TEST_API_KEY_ARABA}"},
     )
     assert res_ok.status_code == 200
     assert res_ok.json()["company_id"] == "CULTIVOS_ARABA"

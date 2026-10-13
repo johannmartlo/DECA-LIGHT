@@ -172,3 +172,5 @@ class BatchImportResultDTO:
     duplicates_count: int
     review_needed_count: int
     items: list[ImportResultItemDTO]
+    rejected_count: int = 0
+

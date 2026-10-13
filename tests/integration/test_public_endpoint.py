@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+from src.config.companies import TEST_API_KEY_TOMATES
 from src.config.settings import Settings
 from src.domain.entities.expedition import Expedition
 from src.domain.enums import AuditAction, DeCAStatus, ExpeditionStatus, VehicleType
@@ -50,6 +51,7 @@ def public_setup(
 
     exp = Expedition(
         id=uuid.uuid4(),
+        company_id="TOMATES_DE_AUTOR",
         internal_id="TD-2026-00088",
         reference="ALB-2026-12345",
         fiscal_year="2026",
@@ -82,6 +84,7 @@ def public_setup(
     app.dependency_overrides[get_storage_service] = lambda: storage
 
     client = TestClient(app)
+    client.headers["Authorization"] = f"Bearer {TEST_API_KEY_TOMATES}"
     return client, exp_repo, deca_repo, audit_service, storage, exp
 
 
@@ -594,3 +597,17 @@ def test_section_23_full_end_to_end_audit_confirmation(public_setup) -> None:
         assert public_token not in str(event.new_state)
 
     Clock.unfreeze()
+
+
+def test_public_access_without_any_authorization_header(public_setup) -> None:
+    """Verifica que el endpoint público /d/{token} funciona sin credenciales de autenticación."""
+    client, _, _, _, _, exp = public_setup
+    res = client.post(f"/api/v1/expeditions/{exp.id}/deca")
+    assert res.status_code == 201
+    token = res.json()["public_token"]
+
+    unauth_client = TestClient(client.app)
+    pub_res = unauth_client.get(f"/d/{token}")
+    assert pub_res.status_code == 200
+    assert pub_res.headers["content-type"] == "application/pdf"
+

@@ -49,6 +49,7 @@ class SendDeCAEmailInputDTO:
     expedition_id: str
     actor: str = "OPERATOR"
     force_resend: bool = False
+    company_id: str | None = None
 
 
 @dataclass(frozen=True)

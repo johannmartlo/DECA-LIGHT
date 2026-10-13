@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+from src.config.companies import TEST_API_KEY_TOMATES
 from src.config.settings import Settings
 from src.domain.entities.deca import DeCA, DeCAVersion
 from src.domain.entities.expedition import Expedition
@@ -55,6 +56,7 @@ def email_api_context(
         internal_id="TD-2026-00201",
         reference="ALB-2026-00201",
         fiscal_year="2026",
+        company_id="TOMATES_DE_AUTOR",
         transport_date=date(2026, 10, 17),
         shipper_name="Tomates de Autor S.L.",
         shipper_tax_id=NIF("B12345678"),
@@ -95,6 +97,7 @@ def email_api_context(
         id=uuid.uuid4(),
         expedition_id=exp.id,
         deca_code="DECA-2026-000201",
+        company_id="TOMATES_DE_AUTOR",
         current_version=1,
         status=DeCAStatus.ISSUED,
     )
@@ -110,6 +113,7 @@ def email_api_context(
     app.dependency_overrides[get_email_sender] = lambda: email_sender
 
     with TestClient(app) as client:
+        client.headers["Authorization"] = f"Bearer {TEST_API_KEY_TOMATES}"
         yield (
             client,
             exp_repo,
@@ -235,6 +239,7 @@ def test_api_send_deca_email_deca_not_emitted(email_api_context):
     exp2 = Expedition(
         id=uuid.uuid4(),
         internal_id="TD-2026-00202",
+        company_id="TOMATES_DE_AUTOR",
         carrier_email="trans@test.es",
         status=ExpeditionStatus.LISTA_PARA_DECA,
     )

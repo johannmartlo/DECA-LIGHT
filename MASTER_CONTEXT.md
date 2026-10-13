@@ -1762,3 +1762,43 @@ Las siguientes reglas complementan las directrices de continuidad del proyecto:
 - No utilizar credenciales reales ni conectar servicios externos sin autorización.
 - Actualizar la documentación de continuidad al finalizar cada fase autorizada.
 - Distinguir lo implementado, lo probado y lo que solo está previsto.
+
+---
+
+# 57. ESTRATEGIA DE PRODUCTO: DESARROLLO COMO SAAS B2B COMERCIALIZABLE
+
+## 57.1 Principio de producto único y visión SaaS B2B
+- **Objetivo comercial:** DECA Light se concibe y desarrolla con el objetivo estratégico de poder comercializarse como un software como servicio (SaaS B2B) orientado al sector agroalimentario y logístico.
+- **Producto único:** Existirá un único producto de software, desarrollado sobre una misma base de código, reutilizable tanto por la empresa inicial como por futuros clientes o empresas del sector.
+- **Prohibición de versiones paralelas:** Queda expresamente prohibido mantener versiones bifurcadas (forks), desarrollos paralelos ad-hoc o duplicar la lógica de negocio para adaptar o comercializar la solución a distintos clientes.
+
+## 57.2 Núcleo de dominio agnóstico y adaptabilidad
+- **Independencia del dominio:** El núcleo de dominio (`src/domain/`) y los casos de uso de aplicación (`src/application/`) deben permanecer estrictamente agnósticos e independientes de cualquier cliente o empresa concreta.
+- **Resolución por configuración y adaptadores:** Las diferencias operativas, formatos documentales específicos, particularidades de exportación o peculiaridades de clientes se resolverán exclusivamente mediante configuración, parámetros de sistema y adaptadores de infraestructura (`src/infrastructure/`), sin contaminar las reglas de negocio canónicas.
+
+## 57.3 Aislamiento de datos, seguridad e integraciones
+- **Aislamiento estricto:** La arquitectura del sistema deberá permitir en su evolución el aislamiento estricto de datos por empresa (tenant context), usuarios y permisos, garantizando la privacidad y la confidencialidad absoluta de la información de cada organización.
+- **Desacoplamiento de ERPs:** Las integraciones con sistemas de gestión empresarial (ERP, ej. Hispatec u otros) se diseñarán como adaptadores periféricos desacoplados del núcleo, utilizando contratos e interfaces de aplicación bien definidos.
+- **Pilares técnicos no negociables:** Se mantendrá la máxima prioridad en:
+  - Persistencia relacional fiable y normalizada.
+  - Integridad transaccional absoluta y custodia inmutable (prevención de borrados o alteraciones de documentos oficiales).
+  - Seguridad defensiva y control de accesos anti-IDOR.
+  - Auditoría exhaustiva y trazabilidad completa de cada operación.
+  - Cobertura integral de pruebas automatizadas continuas (unitarias, de integración y de contrato).
+
+## 57.4 Equilibrio arquitectónico: sin acoplamiento local ni complejidad prematura
+- **Evitar el acoplamiento a una empresa concreta:** Ninguna decisión de diseño ni estructura de datos debe asumir premisas exclusivas de la operativa de una única empresa que impidan su adopción generalizada.
+- **Evitar la complejidad SaaS prematura:** No se deben introducir mecanismos de sobreingeniería (como esquemas dinámicos por base de datos, particionamiento complejo prematuro, orquestadores distribuidos o microservicios) antes de que la madurez del producto y los requerimientos reales lo justifiquen.
+- **Evolución por fases explícitas:** Las nuevas funcionalidades de carácter comercial (facturación multiempresa, onboarding desatendido, portales de administración avanzada, etc.) se incorporarán únicamente mediante fases de desarrollo explícitamente autorizadas y planificadas.
+
+## 57.5 Validación de mercado y salvaguardas legales
+- **Validación de demanda previa a la inversión:** La demanda real de mercado y la disposición de pago de potenciales clientes deberán validarse empíricamente antes de comprometer inversiones en infraestructura comercial compleja o plataformas comerciales completas.
+- **Revisión de titularidad y confidencialidad:** La titularidad de los derechos sobre el código fuente, la propiedad intelectual, el tratamiento de datos y las obligaciones de confidencialidad deberán revisarse y clarificarse formalmente antes de cualquier comercialización del producto.
+
+## 57.6 Alcance y estado real de la decisión (aclaración expresa de límites)
+- **Alcance conceptual:** Esta decisión estratégica define los principios rectores de diseño y la dirección futura del producto DECA Light.
+- **Límites vigentes:** Esta decisión NO significa que:
+  1. El producto disponga ya de una arquitectura SaaS multiempresa completamente operativa o desplegada.
+  2. El sistema esté preparado o autorizado para explotación comercial o producción.
+  3. Exista una demanda comercial validada en el mercado.
+- La aplicación actual mantiene su alcance técnico vigente, operando en la fase de consolidación de adaptadores de persistencia relacional con repositorios en memoria en su capa API activa.

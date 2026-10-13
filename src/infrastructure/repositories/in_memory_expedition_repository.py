@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import threading
 import uuid
 from datetime import date
@@ -7,6 +8,7 @@ from datetime import date
 from src.application.ports.expedition_repository import ExpeditionRepositoryPort
 from src.domain.entities.expedition import Expedition
 from src.domain.enums import ExpeditionStatus
+from src.domain.exceptions import CompanyMismatchException, DuplicateEntityException
 from src.domain.services.expedition_id_generator import (
     InMemoryExpeditionSequenceGenerator,
 )
@@ -20,14 +22,67 @@ class InMemoryExpeditionRepository(ExpeditionRepositoryPort):
         self._seq_gen = InMemoryExpeditionSequenceGenerator()
         self._lock = threading.Lock()
 
-    def save(self, expedition: Expedition) -> Expedition:
+    def save(
+        self, expedition: Expedition, company_id: str | None = None
+    ) -> Expedition:
         with self._lock:
-            self.expeditions[str(expedition.id)] = expedition
+            existing = self.expeditions.get(str(expedition.id))
+            if existing is not None:
+                if existing.company_id:
+                    if company_id is not None and existing.company_id != company_id:
+                        raise CompanyMismatchException(
+                            f"Aislamiento multiempresa: intento de modificar la expedición {expedition.id} "
+                            f"perteneciente a '{existing.company_id}' desde el contexto no autorizado '{company_id}'."
+                        )
+                    if not expedition.company_id or existing.company_id != expedition.company_id:
+                        raise CompanyMismatchException(
+                            f"Aislamiento multiempresa: no está permitido alterar la empresa de una expedición existente "
+                            f"(actual: '{existing.company_id}', solicitada: '{expedition.company_id}')."
+                        )
+                else:
+                    if company_id is not None and expedition.company_id and expedition.company_id != company_id:
+                        raise CompanyMismatchException(
+                            f"Aislamiento multiempresa: la expedición indica '{expedition.company_id}' "
+                            f"pero el contexto exige '{company_id}'."
+                        )
+                    if company_id is not None and not expedition.company_id:
+                        expedition.company_id = company_id
+            else:
+                if company_id is not None and expedition.company_id and expedition.company_id != company_id:
+                    raise CompanyMismatchException(
+                        f"Aislamiento multiempresa: la expedición indica empresa '{expedition.company_id}' "
+                        f"pero el contexto exige '{company_id}'."
+                    )
+                if company_id is not None and not expedition.company_id:
+                    expedition.company_id = company_id
+
+            # Restricción de unicidad compuesta: (company_id, internal_id)
+            effective_company = company_id or expedition.company_id
+            if effective_company and expedition.internal_id:
+                for other_id, other_exp in self.expeditions.items():
+                    if other_id != str(expedition.id):
+                        if (
+                            other_exp.internal_id == expedition.internal_id
+                            and other_exp.company_id == effective_company
+                        ):
+                            raise DuplicateEntityException(
+                                f"Ya existe una expedición con identificador '{expedition.internal_id}' "
+                                f"para la empresa '{effective_company}'."
+                            )
+
+            self.expeditions[str(expedition.id)] = copy.copy(expedition)
             return expedition
 
-    def get_by_id(self, expedition_id: uuid.UUID | str) -> Expedition | None:
+    def get_by_id(
+        self, expedition_id: uuid.UUID | str, company_id: str | None = None
+    ) -> Expedition | None:
         with self._lock:
-            return self.expeditions.get(str(expedition_id))
+            exp = self.expeditions.get(str(expedition_id))
+            if exp is None:
+                return None
+            if company_id is not None and exp.company_id != company_id:
+                return None
+            return exp
 
     def find_by_reference(
         self, reference: str, fiscal_year: str, company_id: str | None = None
@@ -40,15 +95,21 @@ class InMemoryExpeditionRepository(ExpeditionRepositoryPort):
                     return exp
             return None
 
-    def find_by_internal_id(self, internal_id: str) -> Expedition | None:
+    def find_by_internal_id(
+        self, internal_id: str, company_id: str | None = None
+    ) -> Expedition | None:
         with self._lock:
             for exp in self.expeditions.values():
                 if exp.internal_id == internal_id:
+                    if company_id is not None and exp.company_id != company_id:
+                        continue
                     return exp
             return None
 
-    def next_internal_id(self, fiscal_year: str) -> str:
-        return self._seq_gen.next_identifier(fiscal_year)
+    def next_internal_id(
+        self, fiscal_year: str, company_id: str | None = None, prefix: str = "TD"
+    ) -> str:
+        return self._seq_gen.next_identifier(fiscal_year, company_id=company_id, prefix=prefix)
 
     def list_pending_vehicle(self, company_id: str | None = None) -> list[Expedition]:
         with self._lock:
@@ -81,3 +142,14 @@ class InMemoryExpeditionRepository(ExpeditionRepositoryPort):
                     continue
                 return exp
             return None
+
+    def save_with_id_retry(
+        self,
+        expedition: Expedition,
+        fiscal_year: str,
+        company_id: str | None = None,
+        max_retries: int = 3,
+    ) -> Expedition:
+        """Persiste una expedición en memoria (satisfaciendo el contrato de puerto)."""
+        return self.save(expedition, company_id=company_id)
+

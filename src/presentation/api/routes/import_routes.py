@@ -13,10 +13,12 @@ from src.application.use_cases.import_documents_batch import (
     UploadedFileInput,
 )
 from src.config.settings import Settings, get_settings
+from src.domain.value_objects import CompanyContext
 from src.infrastructure.importers.pdf_document_importer import PdfDocumentImporter
 from src.infrastructure.storage.filesystem_storage import FilesystemStorageAdapter
 from src.presentation.api.dependencies import (
     get_audit_service,
+    get_authorized_company_context,
     get_company_repository,
     get_expedition_repository,
 )
@@ -35,6 +37,7 @@ router = APIRouter(prefix="/api/v1/documents", tags=["Importación Documental"])
 )
 async def import_documents_batch(
     files: list[UploadFile],
+    company_context: CompanyContext = Depends(get_authorized_company_context),
     settings: Settings = Depends(get_settings),
     expedition_repo: ExpeditionRepositoryPort = Depends(get_expedition_repository),
     company_repo: CompanyRepositoryPort = Depends(get_company_repository),
@@ -68,4 +71,4 @@ async def import_documents_batch(
         max_concurrency=settings.BATCH_IMPORT_MAX_CONCURRENCY,
     )
 
-    return use_case.execute(file_inputs)
+    return use_case.execute(file_inputs, company_id=company_context.company_id)

@@ -19,6 +19,7 @@ class AssignVehicleInputDTO:
     carrier_tax_id: str | None = None
     carrier_email: str | None = None
     actor: str = "OPERATOR"
+    company_id: str | None = None
 
 
 @dataclass(frozen=True)

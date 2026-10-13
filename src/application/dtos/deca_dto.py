@@ -14,6 +14,7 @@ class EmitDeCAInputDTO:
 
     expedition_id: str
     actor: str = "OPERATOR"
+    company_id: str | None = None
 
 
 @dataclass(frozen=True)

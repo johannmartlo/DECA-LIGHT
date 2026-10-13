@@ -307,26 +307,36 @@ def test_multi_company_can_share_albaran_reference_safely(session_factory) -> No
 
 def test_duplicate_internal_id_raises_integrity_error(session_factory) -> None:
     """Verifica que el identificador interno operativo TD-YYYY-NNNNN es estrictamente único
-    a nivel de motor de base de datos.
+    a nivel de motor de base de datos dentro de la misma empresa.
     """
     session: Session = session_factory()
     try:
+        c = CompanyORM(
+            company_id="TOMATES_DE_AUTOR",
+            legal_name="TOMATES DE AUTOR S.L.",
+            fiscal_address="Dir 1",
+        )
+        session.add(c)
+        session.flush()
+
         exp1 = ExpeditionORM(
             id=uuid.uuid4(),
             internal_id="TD-2026-99999",
             reference="REF-1",
             fiscal_year="2026",
             transport_date=date(2026, 10, 12),
+            company_id="TOMATES_DE_AUTOR",
         )
         session.add(exp1)
         session.commit()
 
         exp2 = ExpeditionORM(
             id=uuid.uuid4(),
-            internal_id="TD-2026-99999",  # Duplicado
+            internal_id="TD-2026-99999",  # Duplicado para la misma empresa
             reference="REF-2",
             fiscal_year="2026",
             transport_date=date(2026, 10, 12),
+            company_id="TOMATES_DE_AUTOR",
         )
         session.add(exp2)
         with pytest.raises(IntegrityError):
